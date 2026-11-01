@@ -23,8 +23,8 @@ log = logging.getLogger(__name__)
 
 MUSIC_CATEGORIES = (3000, 3010, 3020, 3030, 3040, 3050, 3060)
 LOSSLESS_RE = re.compile(r"\b(flac|alac|ape|wav|aiff|dsd|dsf|lossless|24\s?bits?|16\s?bits?)\b", re.I)
-HIGH_RE = re.compile(r"(?<![\d.])320(?![\d])|\bv0\b|(?:aac|m4a|opus)[\s.-]?256(?![\d])", re.I)
-LOW_RE = re.compile(r"\b(mp3|aac|m4a|ogg|v2)\b|(?<![\d.])(128|160|192|256)(?![\d])", re.I)
+HIGH_RE = re.compile(r"(?<!\d)320(?!\d)|\bv0\b|(?:aac|m4a|opus)[\s.-]?256(?![\d])", re.I)
+LOW_RE = re.compile(r"\b(mp3|aac|m4a|ogg|v2)\b|(?<!\d)(128|160|192|256)(?!\d)", re.I)
 
 
 @dataclass
