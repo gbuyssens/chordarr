@@ -1,0 +1,55 @@
+{% extends "base.html" %}{% block title %}Artists · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="left">
+    <form method="post" action="{{ base }}/system/tasks/refresh"><button class="tool"><svg class="i"><use href="#i-sync"/></svg><span>Update all</span></button></form>
+    <form method="post" action="{{ base }}/system/tasks/scan"><button class="tool"><svg class="i"><use href="#i-folder"/></svg><span>Scan library</span></button></form>
+    <a class="tool" href="{{ base }}/artists/add"><svg class="i"><use href="#i-plus"/></svg><span>Add new</span></a>
+  </div>
+  <div class="right">
+    <a class="tool {% if view=='posters' %}active{% endif %}" href="?view=posters&sort={{ sort }}&filter={{ filter }}" title="Posters"><svg class="i"><use href="#i-grid"/></svg></a>
+    <a class="tool {% if view=='table' %}active{% endif %}" href="?view=table&sort={{ sort }}&filter={{ filter }}" title="Table"><svg class="i"><use href="#i-list"/></svg></a>
+    <form method="get" class="inline"><input type="hidden" name="view" value="{{ view }}">
+      <select name="sort" onchange="this.form.submit()"><option value="name" {{ 'selected' if sort=='name' }}>Sort: Name</option><option value="added" {{ 'selected' if sort=='added' }}>Sort: Added</option><option value="albums" {{ 'selected' if sort=='albums' }}>Sort: Albums</option><option value="missing" {{ 'selected' if sort=='missing' }}>Sort: Missing</option></select>
+      <select name="filter" onchange="this.form.submit()"><option value="all" {{ 'selected' if filter=='all' }}>Filter: All</option><option value="monitored" {{ 'selected' if filter=='monitored' }}>Monitored</option><option value="unmonitored" {{ 'selected' if filter=='unmonitored' }}>Unmonitored</option><option value="missing" {{ 'selected' if filter=='missing' }}>Missing albums</option></select>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+{% if total == 0 %}
+<div class="panel empty-state">
+  <h2>No artists yet</h2>
+  <p>Add an artist with the search box, or <a href="{{ base }}/artists/import">import your Lidarr library</a>.</p>
+</div>
+{% elif view == 'table' %}
+<table class="table">
+<thead><tr><th></th><th>Artist</th><th>Type</th><th>Albums</th><th>Appearances</th><th>Progress</th><th>Path</th><th>Last refresh</th></tr></thead>
+<tbody>
+{% for a, s in items %}
+<tr class="{% if not a.monitored %}unmonitored{% endif %}">
+  <td class="col-mon"><svg class="i {{ 'on' if a.monitored else 'off' }}"><use href="#i-bookmark"/></svg></td>
+  <td><a href="{{ base }}/artists/{{ a.id }}">{{ a.name }}</a></td>
+  <td class="muted">{{ a.type or '—' }}</td>
+  <td>{{ s.own }}</td><td>{{ s.appearances }}</td>
+  <td><div class="progress {{ s.state }}" title="{{ s.have }} / {{ s.monitored }} monitored albums"><div style="width:{{ s.pct }}%"></div><span>{{ s.have }} / {{ s.monitored }}</span></div></td>
+  <td class="muted small">{{ a.path or '—' }}</td>
+  <td class="muted small">{{ a.last_refresh.strftime('%Y-%m-%d %H:%M') if a.last_refresh else 'never' }}</td>
+</tr>
+{% endfor %}
+</tbody></table>
+{% else %}
+<div class="posters">
+{% for a, s in items %}
+<a class="poster {% if not a.monitored %}unmonitored{% endif %}" href="{{ base }}/artists/{{ a.id }}">
+  <div class="img">{% if a.image_url %}<img loading="lazy" src="{{ a.image_url }}" alt="">{% else %}<div class="noimg"><svg class="i"><use href="#i-music"/></svg></div>{% endif %}
+    <svg class="i mon {{ 'on' if a.monitored else 'off' }}" title="{{ 'Monitored' if a.monitored else 'Unmonitored' }}"><use href="#i-bookmark"/></svg>
+    {% if a.refresh_error %}<span class="corner danger" title="{{ a.refresh_error }}">!</span>{% endif %}
+  </div>
+  <div class="progress {{ s.state }}" title="{{ s.have }} of {{ s.monitored }} monitored albums on disk"><div style="width:{{ s.pct }}%"></div><span>{{ s.have }} / {{ s.monitored }}</span></div>
+  <div class="caption"><div class="name">{{ a.name }}</div><div class="muted small">{{ s.own }} releases · {{ s.appearances }} appearances</div></div>
+</a>
+{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

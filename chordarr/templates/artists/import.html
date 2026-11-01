@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% block title %}Library Import · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Library Import</h1>
+<div class="panel">
+  <h3>Import from Lidarr</h3>
+  <p class="muted">Brings every artist Lidarr tracks: MusicBrainz id, folder, monitored flag. Chordarr rebuilds the catalogue itself. Lidarr can keep running. Imported artists watch studio albums and features, like Lidarr's default profile; widen it per artist afterwards.</p>
+  <form method="post" action="{{ base }}/artists/import/lidarr" class="form grid2">
+    <label>Path to <code>lidarr.db</code> on this machine<input name="db_path" placeholder="/var/lib/lidarr/lidarr.db"></label>
+    <div class="or">or through the API</div>
+    <label>Lidarr URL<input name="lidarr_url" placeholder="http://localhost:8686"></label>
+    <label>Lidarr API key<input name="api_key" type="password" autocomplete="off"></label>
+    <div><button class="btn primary"><svg class="i"><use href="#i-download"/></svg> Import</button></div>
+  </form>
+</div>
+<div class="panel">
+  <h3>Folders in the root folder that belong to no tracked artist <span class="muted">{{ unknown|length }}</span></h3>
+  {% if not settings.root_folder %}<p class="muted">No root folder configured.</p>
+  {% elif not unknown %}<p class="muted">Every folder under <code>{{ settings.root_folder }}</code> is tracked.</p>
+  {% else %}
+  <table class="table"><tbody>{% for p in unknown %}<tr><td><svg class="i muted"><use href="#i-folder"/></svg> {{ p.name }}</td><td class="col-actions"><a class="btn sm" href="{{ base }}/artists/add?q={{ p.name|urlencode }}"><svg class="i"><use href="#i-search"/></svg> Search</a></td></tr>{% endfor %}</tbody></table>
+  {% endif %}
+</div>
+{% endblock %}

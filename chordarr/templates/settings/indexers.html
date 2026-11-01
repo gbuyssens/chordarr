@@ -1,0 +1,45 @@
+{% extends "base.html" %}{% block title %}Indexers · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Indexers</h1>
+<div class="cards">
+{% for i in indexers %}
+{% set on = i.enable_rss or i.enable_automatic_search or i.enable_interactive_search %}
+<div class="card {% if not on %}disabled{% endif %}">
+  <div class="card-title">{{ i.name }} <span class="label">{{ i.implementation }}</span>{% if not on %} <span class="label">disabled</span>{% endif %}</div>
+  <div class="muted small"><code>{{ i.base_url }}</code></div>
+  <div class="muted small">priority {{ i.priority }} · categories {{ i.categories|join(', ') }}{% if i.protocol == 'torrent' %} · min seeders {{ i.minimum_seeders }}{% endif %}{% if i.capabilities.music_params %} · music search: {{ i.capabilities.music_params|join(', ') }}{% endif %}</div>
+  <div class="muted small">{{ 'RSS' if i.enable_rss }} {{ 'automatic' if i.enable_automatic_search }} {{ 'interactive' if i.enable_interactive_search }}{% if i.last_rss %} · last RSS {{ i.last_rss.strftime('%Y-%m-%d %H:%M') }}{% endif %}</div>
+  {% if i.last_error %}<div class="text-danger small">{{ i.last_error }}</div>{% endif %}
+  <div class="card-actions">
+    <form method="post" action="{{ base }}/settings/indexers/{{ i.id }}/test"><button class="btn sm">Test</button></form>
+    <form method="post" action="{{ base }}/settings/indexers/{{ i.id }}/toggle"><button class="btn sm">{{ 'Disable' if on else 'Enable' }}</button></form>
+    <form method="post" action="{{ base }}/settings/indexers/{{ i.id }}/delete" onsubmit="return confirm('Remove this indexer? Prowlarr adds it again if it manages it.')"><button class="btn sm danger"><svg class="i"><use href="#i-trash"/></svg></button></form>
+  </div>
+</div>
+{% endfor %}
+<details class="card add"><summary><svg class="i"><use href="#i-plus"/></svg> Add indexer</summary>
+<p class="muted small">The easy way: add Chordarr to <b>Prowlarr</b> as a <em>Lidarr</em> application (this URL and the API key from <a href="{{ base }}/settings/general">General</a>). Prowlarr pushes and keeps its indexers in sync here. Torznab and Newznab can also be added by hand.</p>
+<form method="post" action="{{ base }}/settings/indexers" class="form">
+  <label>Name<input name="name" required></label>
+  <label>Type<select name="implementation"><option>Torznab</option><option>Newznab</option></select></label>
+  <label>URL<input name="base_url" required placeholder="http://prowlarr:9696/1/"></label>
+  <label>API path<input name="api_path" value="/api"></label>
+  <label>API key<input name="api_key" type="password" autocomplete="off"></label>
+  <label>Categories<input name="categories" value="3000,3010,3040"></label>
+  <label>Priority (1 first … 50 last)<input name="priority" type="number" value="25" min="1" max="50"></label>
+  <label>Minimum seeders (torrents)<input name="minimum_seeders" type="number" value="1" min="0"></label>
+  <div><button class="btn primary">Save</button></div>
+</form>
+</details>
+</div>
+
+<div class="panel" id="options">
+  <h3>Options</h3>
+  <form method="post" action="{{ base }}/settings/indexers/options" class="form">
+    <label class="check"><input type="checkbox" name="auto_grab" {% if prefs.auto_grab %}checked{% endif %}> Grab missing releases automatically (RSS every {{ settings.rss_interval_minutes|int }} min, search every {{ '%g'|format(settings.search_interval_hours) }} h). Off: nothing is downloaded until you pick a result in a release's <em>Search</em>.</label>
+    <label>Quality profile<select name="quality_profile">{% for k, label in QUALITY_PROFILES.items() %}<option value="{{ k }}" {% if prefs.quality_profile == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <div><button class="btn primary">Save</button></div>
+  </form>
+  <p class="muted small">A result must name the artist and the release, meet the profile and the indexer's minimum seeders; among those, the best quality wins, then seeders, then indexer priority.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% block title %}Connect · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Connect <span class="muted small">notifications</span></h1>
+<div class="cards">
+{% for n in notifiers %}
+<div class="card {% if not n.enabled %}disabled{% endif %}">
+  <div class="card-title">{{ n.name }} <span class="label">{{ n.type }}</span>{% if not n.enabled %} <span class="label">disabled</span>{% endif %}</div>
+  <div class="muted small">{{ n.events|map('replace','_',' ')|join(', ') if n.events else 'all events' }}</div>
+  {% if n.last_error %}<div class="text-danger small">{{ n.last_error }}</div>{% endif %}
+  <div class="card-actions">
+    <form method="post" action="{{ base }}/settings/connect/{{ n.id }}/test"><button class="btn sm">Test</button></form>
+    <form method="post" action="{{ base }}/settings/connect/{{ n.id }}/toggle"><button class="btn sm">{{ 'Disable' if n.enabled else 'Enable' }}</button></form>
+    <form method="post" action="{{ base }}/settings/connect/{{ n.id }}/delete" onsubmit="return confirm('Remove this connection?')"><button class="btn sm danger"><svg class="i"><use href="#i-trash"/></svg></button></form>
+  </div>
+</div>
+{% endfor %}
+<details class="card add"><summary><svg class="i"><use href="#i-plus"/></svg> Add connection</summary>
+<form method="post" action="{{ base }}/settings/connect" class="form">
+  <label>Name<input name="name" placeholder="e.g. Discord #music"></label>
+  <label>Type<select name="type" onchange="document.querySelectorAll('.ntype').forEach(e=>e.style.display=e.dataset.t===this.value?'':'none')">{% for t, d in NOTIFIER_TYPES.items() %}<option value="{{ t }}">{{ d.label }}</option>{% endfor %}</select></label>
+  {% for t, d in NOTIFIER_TYPES.items() %}<div class="ntype" data-t="{{ t }}" {% if not loop.first %}style="display:none"{% endif %}>{% for f in d.fields %}<label>{{ f.replace('_',' ') }}<input name="cfg_{{ f }}" {% if 'token' in f or 'secret' in f %}type="password" autocomplete="off"{% endif %}></label>{% endfor %}</div>{% endfor %}
+  <fieldset><legend>Triggers (none checked = all)</legend>{% for k, label in EVENT_TYPES.items() %}<label class="check"><input type="checkbox" name="ev_{{ k }}"> {{ label }}</label>{% endfor %}</fieldset>
+  <div><button class="btn primary">Save</button></div>
+</form>
+<p class="muted small">Webhook: JSON POST with <code>event</code>, <code>title</code>, <code>body</code>, <code>artist</code>, <code>release</code>; header <code>X-Chordarr-Event</code>; optional bearer secret. Built for n8n and Home Assistant.</p>
+</details>
+</div>
+
+<h2 class="page-title">Media servers <span class="muted small">targeted scan after each import</span></h2>
+<div class="cards">
+{% for m in mediaservers %}
+<div class="card {% if not m.enabled %}disabled{% endif %}">
+  <div class="card-title">{{ m.name }} <span class="label">{{ MEDIA_SERVER_TYPES[m.type].label if m.type in MEDIA_SERVER_TYPES else m.type }}</span>{% if not m.enabled %} <span class="label">disabled</span>{% endif %}</div>
+  <div class="muted small"><code>{{ m.url }}</code>{% if m.local_path %} · <code>{{ m.local_path }}</code> → <code>{{ m.remote_path }}</code>{% endif %}{% if m.section %} · section {{ m.section }}{% endif %}</div>
+  {% if m.last_error %}<div class="text-danger small">{{ m.last_error }}</div>{% endif %}
+  <div class="card-actions">
+    <form method="post" action="{{ base }}/settings/connect/mediaservers/{{ m.id }}/test"><button class="btn sm">Test</button></form>
+    <form method="post" action="{{ base }}/settings/connect/mediaservers/{{ m.id }}/toggle"><button class="btn sm">{{ 'Disable' if m.enabled else 'Enable' }}</button></form>
+    <form method="post" action="{{ base }}/settings/connect/mediaservers/{{ m.id }}/delete" onsubmit="return confirm('Remove this media server?')"><button class="btn sm danger"><svg class="i"><use href="#i-trash"/></svg></button></form>
+  </div>
+</div>
+{% endfor %}
+<details class="card add"><summary><svg class="i"><use href="#i-plus"/></svg> Add media server</summary>
+<form method="post" action="{{ base }}/settings/connect/mediaservers" class="form">
+  <label>Name<input name="name" required placeholder="Jellyfin"></label>
+  <label>Type<select name="type">{% for k, d in MEDIA_SERVER_TYPES.items() %}<option value="{{ k }}">{{ d.label }}</option>{% endfor %}</select></label>
+  <label>URL<input name="url" required placeholder="http://jellyfin:8096"></label>
+  <label>API key / Plex token<input name="api_key" type="password" autocomplete="new-password"></label>
+  <label>Plex section id (optional, found from the path otherwise)<input name="section"></label>
+  <label>Local path (root folder as Chordarr sees it)<input name="local_path" placeholder="{{ settings.root_folder or '/music' }}"></label>
+  <label>Remote path (the same folder as the server sees it)<input name="remote_path" placeholder="/media/music"></label>
+  <div><button class="btn primary">Save</button></div>
+</form>
+<p class="muted small">Only the imported folder is scanned, never the whole library: Jellyfin/Emby <code>POST /Library/Media/Updated</code>, Plex <code>/library/sections/{id}/refresh?path=</code>.</p>
+</details>
+</div>
+{% endblock %}

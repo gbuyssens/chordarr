@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block title %}Missing · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar"><div class="right"><form method="get" class="inline"><select name="kind" onchange="this.form.submit()"><option value="" {{ 'selected' if not kind }}>Filter: Everything</option><option value="own" {{ 'selected' if kind=='own' }}>Own releases</option><option value="appearance" {{ 'selected' if kind=='appearance' }}>Features &amp; appearances</option></select></form></div></div>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">Missing <span class="muted small">{{ releases|length }} monitored releases out and not on disk</span></h1>
+<table class="table releases">
+<thead><tr><th></th><th></th><th>Release</th><th>Type</th><th>Release date</th><th>Status</th><th></th></tr></thead>
+<tbody>{% set show_artist = True %}{% for r in releases %}{% include "_release_row.html" %}{% else %}<tr><td colspan="7" class="muted center">Nothing missing.</td></tr>{% endfor %}</tbody>
+</table>
+{% endblock %}

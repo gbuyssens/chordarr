@@ -4,25 +4,51 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Chordarr{% endblock %}</title>
-<link rel="stylesheet" href="{{ settings.url_base }}/static/style.css">
-<link rel="icon" href="{{ settings.url_base }}/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{ base }}/static/style.css">
+<link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
 </head>
 <body>
-<nav class="top">
-  <a class="brand" href="{{ settings.url_base }}/"><span class="logo">♪</span> Chordarr</a>
-  <a href="{{ settings.url_base }}/artists">Artists</a>
-  <a href="{{ settings.url_base }}/calendar">Calendar</a>
-  <a href="{{ settings.url_base }}/wanted">Wanted</a>
-  <a href="{{ settings.url_base }}/queue">Queue</a>
-  <a href="{{ settings.url_base }}/recommendations">Discover</a>
-  <a href="{{ settings.url_base }}/activity">Activity</a>
-  <a href="{{ settings.url_base }}/settings">Settings</a>
-  <a class="cta" href="{{ settings.url_base }}/artists/add">+ Add artist</a>
+{% include "_icons.html" %}
+{% set path = request.url.path %}
+{% macro nav(href, icon, label, exact=False) -%}
+<a class="nav-item {% if (exact and path == base ~ href) or (not exact and path.startswith(base ~ href)) %}active{% endif %}" href="{{ base }}{{ href }}"><svg class="i"><use href="#i-{{ icon }}"/></svg><span>{{ label }}</span></a>
+{%- endmacro %}
+{% macro sub(href, label) -%}
+<a class="nav-sub {% if path == base ~ href %}active{% endif %}" href="{{ base }}{{ href }}">{{ label }}</a>
+{%- endmacro %}
+<input type="checkbox" id="nav-toggle" hidden>
+<header class="topbar">
+  <label for="nav-toggle" class="burger"><svg class="i"><use href="#i-bars"/></svg></label>
+  <a class="brand" href="{{ base }}/artists"><span class="logo"><svg class="i"><use href="#i-music"/></svg></span>Chordarr</a>
+  <form class="topsearch" method="get" action="{{ base }}/artists/add"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" placeholder="Search artists to add…" value="{{ request.query_params.get('q','') if path.endswith('/artists/add') else '' }}"></form>
+  <div class="topright">
+    {% if jobs.running %}<span class="spin" title="running: {{ jobs.running|join(', ') }}"><svg class="i"><use href="#i-sync"/></svg></span>{% endif %}
+    <a href="{{ base }}/system/status" title="System"><svg class="i"><use href="#i-laptop"/></svg></a>
+    <a href="{{ base }}/docs" title="API docs" target="_blank" rel="noopener"><svg class="i"><use href="#i-code"/></svg></a>
+  </div>
+</header>
+<div class="layout">
+<nav class="sidebar">
+  <div class="group">{{ nav('/artists', 'user', 'Artists') }}
+    {% if path.startswith(base ~ '/artists') %}<div class="subs">{{ sub('/artists/add', 'Add New') }}{{ sub('/artists/import', 'Library Import') }}{{ sub('/artists/discover', 'Discover') }}</div>{% endif %}</div>
+  <div class="group">{{ nav('/calendar', 'calendar', 'Calendar') }}</div>
+  <div class="group">{{ nav('/activity', 'activity', 'Activity') }}
+    {% if path.startswith(base ~ '/activity') %}<div class="subs">{{ sub('/activity/queue', 'Queue') }}{{ sub('/activity/history', 'History') }}</div>{% endif %}</div>
+  <div class="group">{{ nav('/wanted', 'exclamation', 'Wanted') }}
+    {% if path.startswith(base ~ '/wanted') %}<div class="subs">{{ sub('/wanted/missing', 'Missing') }}</div>{% endif %}</div>
+  <div class="group">{{ nav('/settings', 'cog', 'Settings') }}
+    {% if path.startswith(base ~ '/settings') %}<div class="subs">{{ sub('/settings/mediamanagement', 'Media Management') }}{{ sub('/settings/indexers', 'Indexers') }}{{ sub('/settings/downloadclients', 'Download Clients') }}{{ sub('/settings/connect', 'Connect') }}{{ sub('/settings/general', 'General') }}</div>{% endif %}</div>
+  <div class="group">{{ nav('/system', 'laptop', 'System') }}
+    {% if path.startswith(base ~ '/system') %}<div class="subs">{{ sub('/system/status', 'Status') }}{{ sub('/system/tasks', 'Tasks') }}</div>{% endif %}</div>
+  <div class="sidebar-foot">v{{ version }}{% if settings.ui_password %} · <a href="{{ base }}/logout">Log out</a>{% endif %}</div>
 </nav>
-<main>
-{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
-{% block content %}{% endblock %}
+<main class="page">
+  {% block toolbar %}{% endblock %}
+  <div class="content">
+  {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+  {% block content %}{% endblock %}
+  </div>
 </main>
-<footer>Chordarr {{ version }} · data from <a href="https://musicbrainz.org">MusicBrainz</a>, <a href="https://coverartarchive.org">Cover Art Archive</a>, <a href="https://listenbrainz.org">ListenBrainz</a> and Deezer</footer>
+</div>
 </body>
 </html>

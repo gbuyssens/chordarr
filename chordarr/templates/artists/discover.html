@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Discover · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar"><div class="left"><form method="post" action="{{ base }}/system/tasks/recommendations"><button class="tool" {% if 'recommendations' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-sync"/></svg><span>Rebuild</span></button></form></div></div>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">Discover <span class="muted small">artists your artists point to, on ListenBrainz and Deezer</span></h1>
+{% if not recs %}<div class="panel empty-state"><p class="muted">Nothing yet. Recommendations are rebuilt daily, or use <em>Rebuild</em>.</p></div>{% endif %}
+<div class="posters">
+{% for r in recs %}
+<div class="poster reco">
+  <div class="img">{% if r.image_url %}<img loading="lazy" src="{{ r.image_url }}" alt="">{% else %}<div class="noimg"><svg class="i"><use href="#i-compass"/></svg></div>{% endif %}<span class="corner">{{ '%.1f'|format(r.score) }}</span></div>
+  <div class="caption"><div class="name">{{ r.name }}</div><div class="muted small">because of {{ r.reasons|map(attribute='artist')|unique|list|join(', ') }}</div></div>
+  <div class="actions">
+    <form method="post" action="{{ base }}/artists/discover/{{ r.id }}/add"><button class="btn sm success"><svg class="i"><use href="#i-plus"/></svg> Add</button></form>
+    <form method="post" action="{{ base }}/artists/discover/{{ r.id }}/dismiss"><button class="btn sm"><svg class="i"><use href="#i-times"/></svg></button></form>
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

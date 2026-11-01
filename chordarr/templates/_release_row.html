@@ -1,0 +1,19 @@
+<tr class="{{ r.status }} {% if not r.monitored %}unmonitored{% endif %}" id="rg-{{ r.mbid }}">
+  <td class="col-mon"><form method="post" action="{{ base }}/releases/{{ r.id }}/toggle"><button class="icon-btn {{ 'on' if r.monitored else 'off' }}" title="{{ 'Monitored' if r.monitored else 'Unmonitored' }}"><svg class="i"><use href="#i-bookmark"/></svg></button></form></td>
+  <td class="col-cover"><img loading="lazy" src="{{ r.cover_url }}" alt="" onerror="this.style.visibility='hidden'"></td>
+  <td class="col-title">
+    <a href="{{ base }}/artists/{{ r.artist_id }}#rg-{{ r.mbid }}">{{ r.title }}</a>
+    {% if show_artist %}<div class="muted small">{{ artists[r.artist_id].name if artists and r.artist_id in artists else r.artist_credit }}</div>{% endif %}
+    {% if r.kind == 'appearance' %}<div class="muted small">on {{ r.artist_credit }}{% if tracks and tracks.get(r.id) %} · {% for ap in tracks[r.id] %}<span class="role {{ ap.role }}">{{ ap.role }}</span> {{ ap.recording_title }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</div>{% endif %}
+  </td>
+  <td class="col-type"><span class="label">{{ r.type_label }}</span></td>
+  <td class="col-date">{{ r.first_release_date or '—' }}</td>
+  <td class="col-status">
+    {% if r.status == 'have' %}<span class="label success">{{ r.file_count }} files</span>
+    {% elif r.status == 'partial' %}<span class="label warning">{{ r.file_count }} / {{ r.track_count }}</span>
+    {% elif r.is_upcoming %}<span class="label info">upcoming</span>
+    {% elif not r.monitored %}<span class="label">unmonitored</span>
+    {% else %}<span class="label danger">missing</span>{% endif %}
+  </td>
+  <td class="col-actions">{% if r.status != 'have' and not r.is_upcoming %}<a class="icon-btn" title="Search indexers" href="{{ base }}/releases/{{ r.id }}/search"><svg class="i"><use href="#i-search"/></svg></a>{% endif %}<a class="icon-btn" title="MusicBrainz" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}"><svg class="i"><use href="#i-external"/></svg></a></td>
+</tr>

@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}Media Management · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Media Management</h1>
+<div class="panel">
+  <h3>Root folder</h3>
+  {% if root %}<table class="table"><tbody><tr><td><svg class="i muted"><use href="#i-folder"/></svg> {{ root }}</td><td>{% if free is not none %}{{ (free / 1e9)|round(1) }} GB free{% else %}<span class="text-danger">not accessible</span>{% endif %}</td></tr></tbody></table>
+  {% else %}<p class="text-warning">No root folder. Set <code>CHORDARR_ROOT_FOLDER</code> and restart.</p>{% endif %}
+</div>
+<div class="panel">
+  <h3>Naming</h3>
+  <p class="muted">How imported releases are filed under the root folder, and how existing folders are matched. Placeholders: <code>{artist}</code>, <code>{album}</code>, <code>{year}</code>, <code>{nn}</code> (zero-padded track), <code>{track}</code>, <code>{disc}</code>, <code>{title}</code>. Nothing already in the library is renamed.</p>
+  <dl class="kv"><dt>Artist folder</dt><dd><code>{{ settings.artist_folder_format }}</code></dd><dt>Album folder</dt><dd><code>{{ settings.album_folder_format }}</code></dd><dt>Track file</dt><dd><code>{{ settings.track_format }}</code></dd><dt>Import mode</dt><dd><code>{{ settings.import_mode }}</code> <span class="muted small">(auto: hard-link torrents, move usenet)</span></dd></dl>
+</div>
+<div class="panel">
+  <h3>Matching</h3>
+  <p class="muted">A folder is paired with a release first by the <code>MusicBrainz Release Group Id</code> tag of its audio files, then by its name (accents and case ignored, trailing <code>(year)</code> optional). One folder pairs with one release; the year then the artist's own releases win ties.</p>
+</div>
+{% endblock %}

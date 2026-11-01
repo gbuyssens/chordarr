@@ -1,0 +1,17 @@
+# Chordarr next to the rest of the stack. Same shape as the usual *arr compose files.
+services:
+  chordarr:
+    image: ghcr.io/gbuyssens/chordarr:latest
+    container_name: chordarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+      # - CHORDARR_UI_PASSWORD=change-me   # when no reverse proxy / SSO sits in front
+    volumes:
+      - ./config:/config
+      - /path/to/music:/music
+      - /path/to/downloads:/downloads
+    ports:
+      - "8585:8585"

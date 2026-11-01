@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}General · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">General</h1>
+<div class="panel"><h3>Host</h3>
+<dl class="kv"><dt>Bind address</dt><dd><code>{{ settings.host }}</code></dd><dt>Port</dt><dd><code>{{ settings.port }}</code></dd><dt>URL base</dt><dd><code>{{ settings.url_base or '/' }}</code></dd></dl></div>
+<div class="panel"><h3>Security</h3>
+<dl class="kv"><dt>API key</dt><dd><code class="secret" onclick="this.classList.toggle('show')">{{ api_key }}</code> <span class="muted small">click to reveal · header <code>X-Api-Key</code></span></dd>
+<dt>UI login</dt><dd>{{ 'password' if settings.ui_password else 'none (reverse proxy / SSO expected)' }}</dd>
+<dt>Local API access</dt><dd>{{ 'allowed without key from private addresses' if settings.auth_disabled_for_local else 'key required everywhere' }}</dd></dl></div>
+<div class="panel"><h3>Updates &amp; intervals</h3>
+<dl class="kv"><dt>Refresh artists</dt><dd>every {{ '%g'|format(settings.refresh_interval_hours) }} h</dd><dt>Scan library</dt><dd>every {{ '%g'|format(settings.scan_interval_hours) }} h</dd><dt>Recommendations</dt><dd>every {{ '%g'|format(settings.recommendations_interval_hours) }} h</dd><dt>MusicBrainz</dt><dd><code>{{ settings.musicbrainz_url }}</code>, 1 request/s</dd></dl>
+<p class="muted small">Settings are read from <code>CHORDARR_*</code> environment variables or <code>chordarr.toml</code> in the data directory; restart to apply.</p></div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}{% block title %}{{ artist.name }} · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="left">
+    <form method="post" action="{{ base }}/artists/{{ artist.id }}/refresh"><button class="tool"><svg class="i"><use href="#i-sync"/></svg><span>Refresh &amp; Scan</span></button></form>
+    <form method="post" action="{{ base }}/artists/{{ artist.id }}/toggle"><input type="hidden" name="field" value="monitored"><button class="tool"><svg class="i {{ 'on' if artist.monitored else 'off' }}"><use href="#i-bookmark"/></svg><span>{{ 'Monitored' if artist.monitored else 'Unmonitored' }}</span></button></form>
+  </div>
+  <div class="right">
+    <form method="post" action="{{ base }}/artists/{{ artist.id }}/delete" onsubmit="return confirm('Remove {{ artist.name|e }} from Chordarr? Files on disk are kept.')"><button class="tool danger"><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button></form>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<section class="artist-header" {% if artist.image_url %}style="--fanart:url('{{ artist.image_url }}')"{% endif %}>
+  <div class="poster-lg">{% if artist.image_url %}<img src="{{ artist.image_url }}" alt="">{% else %}<div class="noimg"><svg class="i"><use href="#i-music"/></svg></div>{% endif %}</div>
+  <div class="details">
+    <h1>{{ artist.name }} {% if artist.disambiguation %}<span class="muted">({{ artist.disambiguation }})</span>{% endif %}</h1>
+    <div class="labels">
+      {% if artist.type %}<span class="label">{{ artist.type }}</span>{% endif %}
+      {% if artist.country %}<span class="label">{{ artist.country }}</span>{% endif %}
+      <span class="label">{{ stats.own }} releases</span>
+      <span class="label">{{ stats.appearances }} appearances</span>
+      <span class="label {{ 'success' if stats.state == 'complete' else ('danger' if stats.missing else '') }}">{{ stats.have }} / {{ stats.monitored }} on disk</span>
+      <span class="label">{{ stats.files }} files</span>
+    </div>
+    <dl class="meta">
+      <dt><svg class="i"><use href="#i-folder"/></svg></dt><dd>{{ folder or 'no folder (set CHORDARR_ROOT_FOLDER)' }}</dd>
+      <dt><svg class="i"><use href="#i-sync"/></svg></dt><dd>{{ artist.last_refresh.strftime('%Y-%m-%d %H:%M') if artist.last_refresh else 'never refreshed' }}{% if artist.refresh_error %} · <span class="text-danger">{{ artist.refresh_error }}</span>{% endif %}</dd>
+      <dt><svg class="i"><use href="#i-external"/></svg></dt><dd><a target="_blank" rel="noopener" href="https://musicbrainz.org/artist/{{ artist.mbid }}">MusicBrainz</a>{% if artist.deezer_id %} · <a target="_blank" rel="noopener" href="https://www.deezer.com/artist/{{ artist.deezer_id }}">Deezer</a>{% endif %}</dd>
+    </dl>
+    <div class="monitor-row">
+      <span class="muted small">Monitor:</span>
+      {% for t in ['Album','EP','Single'] %}<form method="post" action="{{ base }}/artists/{{ artist.id }}/toggle"><input type="hidden" name="field" value="{{ t }}"><button class="chip {{ 'on' if t in artist.monitor_types else '' }}">{{ t }}s</button></form>{% endfor %}
+      <form method="post" action="{{ base }}/artists/{{ artist.id }}/toggle"><input type="hidden" name="field" value="monitor_appearances"><button class="chip {{ 'on' if artist.monitor_appearances else '' }}">Features &amp; appearances</button></form>
+    </div>
+  </div>
+</section>
+
+{% for type, rels in groups.items() %}
+<details class="section" open>
+  <summary><span>{{ type }}{{ 's' if type != 'Other' }}</span><span class="muted">{{ rels|length }}</span></summary>
+  <table class="table releases"><tbody>{% for r in rels %}{% include "_release_row.html" %}{% endfor %}</tbody></table>
+</details>
+{% endfor %}
+
+<details class="section" {% if appearances|length <= 60 %}open{% endif %}>
+  <summary><span>Features &amp; appearances</span><span class="muted">{{ appearances|length }}</span></summary>
+  {% if not appearances %}<p class="muted pad">No appearance on other artists' releases found{% if not artist.last_refresh %} yet: refresh is running{% endif %}.</p>{% endif %}
+  <table class="table releases"><tbody>{% for r in appearances %}{% include "_release_row.html" %}{% endfor %}</tbody></table>
+</details>
+
+{% if events %}
+<details class="section">
+  <summary><span>Recent activity</span><span class="muted">{{ events|length }}</span></summary>
+  <table class="table"><tbody>{% for e in events %}<tr><td class="muted small nowrap">{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td><span class="label">{{ EVENT_TYPES.get(e.type, e.type) }}</span></td><td>{{ e.title }}<div class="muted small">{{ e.body }}</div></td></tr>{% endfor %}</tbody></table>
+</details>
+{% endif %}
+{% endblock %}

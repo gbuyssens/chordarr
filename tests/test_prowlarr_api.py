@@ -154,7 +154,7 @@ async def test_tags_and_clients_and_mediaservers(client):
     r = await client.put("/api/v1/config/acquisition", json={"auto_grab": False}, headers=HEADERS)
     assert r.json()["auto_grab"] is False and r.json()["quality_profile"] == "any"
 
-    for page in ("/queue", "/settings"):
+    for page in ("/activity/queue", "/settings/indexers", "/settings/downloadclients", "/settings/connect", "/system/tasks"):
         r = await client.get(page)
         assert r.status_code == 200, page
-    assert "TR4KER (Prowlarr)" in (await client.get("/settings")).text  # pushed in the previous test, same database
+    assert "TR4KER (Prowlarr)" in (await client.get("/settings/indexers")).text  # pushed in the previous test, same database

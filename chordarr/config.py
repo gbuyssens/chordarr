@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = Field(default_factory=default_data_dir)
     host: str = "0.0.0.0"
-    port: int = 8688
+    port: int = 8585
     url_base: str = ""  # e.g. "/chordarr" when served under a sub-path
     log_level: str = "info"
 

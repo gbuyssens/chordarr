@@ -1,6 +1,0 @@
-{% extends "base.html" %}{% block title %}Wanted · Chordarr{% endblock %}
-{% block content %}
-<h1>Wanted <small>{{ releases|length }}</small></h1>
-<p class="sub">Monitored releases that are out but not in the library. Open one and use <em>Search</em> to pick a download, or turn on automatic grabbing in <a href="{{ settings.url_base }}/settings#acquisition">Settings</a>; what is in flight is in the <a href="{{ settings.url_base }}/queue">Queue</a>.</p>
-<div class="grid">{% for r in releases %}{% include "_release_card.html" %}{% endfor %}</div>
-{% endblock %}
