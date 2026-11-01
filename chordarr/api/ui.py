@@ -498,6 +498,20 @@ async def queue_remove(request: Request, download_id: int, session: AsyncSession
     return RedirectResponse(url("/activity/queue?notice=Removed+from+the+queue"), status_code=303)
 
 
+@protected.post("/activity/queue/{download_id}/retry")
+async def queue_retry_ui(download_id: int, session: AsyncSession = Depends(get_session)):
+    from chordarr.services import direct
+
+    d = await session.get(Download, download_id)
+    if not d or d.protocol != "direct":
+        raise HTTPException(404)
+    d.status, d.message, d.progress, d.client_id = "grabbed", "retry requested", 0.0, None
+    await session.flush()
+    await direct.resume(session)
+    await session.commit()
+    return RedirectResponse(url("/activity/queue?notice=Download+restarted"), status_code=303)
+
+
 @protected.post("/activity/queue/{download_id}/import")
 async def queue_import_ui(download_id: int, force: bool = Form(False), session: AsyncSession = Depends(get_session)):
     d = await session.get(Download, download_id)

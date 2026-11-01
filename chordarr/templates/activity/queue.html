@@ -39,6 +39,7 @@
   <td class="col-progress"><div class="progress medium {{ 'complete' if state in ('imported',) else 'missing' if state == 'failed' else '' }}" title="{{ d.status }}"><div style="width:{{ (d.progress * 100)|int }}%"></div><span>{% if state == 'importing' %}Importing{% elif state == 'imported' %}Imported{% elif state == 'warning' %}Needs attention{% elif state == 'failed' %}Failed{% else %}{{ (d.progress * 100)|int }}%{% endif %}</span></div>{% if d.message and state in ('warning', 'failed') %}<div class="text-danger xs">{{ d.message[:120] }}</div>{% endif %}</td>
   <td class="col-actions">
     {% if state in ('warning', 'importing', 'failed') and rel and d.output_path %}<form method="post" action="{{ base }}/activity/queue/{{ d.id }}/import" class="inline"><input type="hidden" name="force" value="1"><button class="icon-btn" title="Manual import (ignore tag mismatch)"><svg class="i"><use href="#i-download"/></svg></button></form>{% endif %}
+    {% if state == 'failed' and d.protocol == 'direct' %}<form method="post" action="{{ base }}/activity/queue/{{ d.id }}/retry" class="inline"><button class="icon-btn" title="Retry the download"><svg class="i"><use href="#i-sync"/></svg></button></form>{% endif %}
     <button class="icon-btn" title="Remove from queue" onclick="document.getElementById('rm-{{ d.id }}').showModal()"><svg class="i"><use href="#i-trash"/></svg></button>
     <dialog id="rm-{{ d.id }}" class="modal">
       <form method="post" action="{{ base }}/activity/queue/{{ d.id }}/remove" class="form">

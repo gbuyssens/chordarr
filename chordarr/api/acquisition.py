@@ -387,6 +387,24 @@ async def queue_remove(download_id: int, removeFromClient: bool = True, deleteFi
     await session.commit()
 
 
+@router.post("/queue/{download_id}/retry")
+async def queue_retry(download_id: int, session: AsyncSession = Depends(get_session)):
+    """Start a failed or lost direct download again (same source, same album)."""
+    from chordarr.services import direct
+
+    d = await session.get(Download, download_id)
+    if not d:
+        raise HTTPException(404)
+    if d.protocol != "direct":
+        raise HTTPException(400, "only direct downloads can be retried here; grab the release again for torrents and usenet")
+    d.status, d.message, d.progress = "grabbed", "retry requested", 0.0
+    d.client_id = None
+    await session.flush()
+    n = await direct.resume(session)
+    await session.commit()
+    return {"restarted": n, **lidarr_compat.queue_record(d)}
+
+
 @router.post("/queue/{download_id}/import")
 async def queue_import(download_id: int, body: schemas.QueueImportIn | None = None, session: AsyncSession = Depends(get_session)):
     """Retry the import of a finished download, optionally forcing it or from another path."""
