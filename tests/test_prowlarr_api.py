@@ -117,11 +117,37 @@ async def test_tags_and_clients_and_mediaservers(client):
     assert r.status_code == 201 and r.json()["label"] == "music"
     assert (await client.get("/api/v1/tag", headers=HEADERS)).json()[0]["id"] == r.json()["id"]
 
-    r = await client.post("/api/v1/downloadclient", json={"name": "qb", "implementation": "qbittorrent", "url": "http://qb:8080"}, headers=HEADERS)
-    assert r.status_code == 201 and r.json()["category"] == "chordarr"
+    schema = {s["implementation"]: s for s in (await client.get("/api/v1/downloadclient/schema", headers=HEADERS)).json()}
+    assert set(schema) == {"QBittorrent", "Sabnzbd"} and schema["QBittorrent"]["configContract"] == "QBittorrentSettings"
+    body = {"name": "qb", "implementation": "QBittorrent", "configContract": "QBittorrentSettings", "enable": True, "priority": 1, "fields": [{"name": "host", "value": "qb"}, {"name": "port", "value": 8080}, {"name": "useSsl", "value": False}, {"name": "urlBase", "value": ""}, {"name": "username", "value": "admin"}, {"name": "password", "value": "pw"}, {"name": "musicCategory", "value": "music"}], "tags": []}
+    r = await client.post("/api/v1/downloadclient", json=body, headers=HEADERS)
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+    fields = {f["name"]: f["value"] for f in r.json()["fields"]}
+    assert fields["host"] == "qb" and fields["port"] == 8080 and fields["musicCategory"] == "music" and fields["password"] == "********"
+    assert r.json()["protocol"] == "torrent"
+    from chordarr.db import SessionLocal
+    from chordarr.models import DownloadClient
+
+    async with SessionLocal() as s:
+        stored = await s.get(DownloadClient, cid)
+        assert stored.url == "http://qb:8080" and stored.password == "pw" and stored.implementation == "qbittorrent"
+    body["fields"] = [{"name": "useSsl", "value": True}, {"name": "urlBase", "value": "/qbt"}, {"name": "password", "value": "********"}]
+    body |= {"remotePath": "/downloads", "localPath": "/mnt/dl", "removeCompletedDownloads": True}
+    r = await client.put(f"/api/v1/downloadclient/{cid}", json=body, headers=HEADERS)
+    assert r.status_code == 200, r.text
+    assert r.json()["remotePath"] == "/downloads" and r.json()["removeCompletedDownloads"] is True
+    async with SessionLocal() as s:
+        stored = await s.get(DownloadClient, cid)
+        assert stored.url == "https://qb:8080/qbt" and stored.password == "pw"
+    r = await client.post("/api/v1/downloadclient", json={"name": "sab", "implementation": "Sabnzbd", "fields": [{"name": "host", "value": "sab"}, {"name": "port", "value": 8085}, {"name": "apiKey", "value": "k"}]}, headers=HEADERS)
+    assert r.status_code == 201 and r.json()["protocol"] == "usenet"
+    assert len((await client.get("/api/v1/downloadclient", headers=HEADERS)).json()) == 2
+    assert [p["name"] for p in (await client.get("/api/v1/qualityprofile", headers=HEADERS)).json()] == ["lossless", "high", "any"]
     r = await client.post("/api/v1/mediaserver", json={"name": "jf", "type": "jellyfin", "url": "http://jf:8096", "api_key": "k"}, headers=HEADERS)
     assert r.status_code == 201
-    assert (await client.get("/api/v1/queue", headers=HEADERS)).json() == []
+    q = (await client.get("/api/v1/queue", headers=HEADERS)).json()
+    assert q["totalRecords"] == 0 and q["records"] == [] and q["page"] == 1
 
     r = await client.put("/api/v1/config/acquisition", json={"auto_grab": True, "quality_profile": "any"}, headers=HEADERS)
     assert r.json() == {"auto_grab": True, "quality_profile": "any"}

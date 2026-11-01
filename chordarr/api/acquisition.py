@@ -166,46 +166,59 @@ async def delete_tag(tag_id: int, session: AsyncSession = Depends(get_session)):
     return {}
 
 
-# --- download clients -------------------------------------------------------------------
+# --- download clients (Lidarr-shaped) ---------------------------------------------------
 
 
 @router.get("/downloadclient/schema")
 async def downloadclient_schema():
-    return downloadclients.CLIENT_TYPES
+    return lidarr_compat.client_schema()
 
 
-@router.get("/downloadclient", response_model=list[schemas.DownloadClientOut])
+@router.get("/downloadclient")
 async def list_downloadclients(session: AsyncSession = Depends(get_session)):
-    return (await session.scalars(select(DownloadClient).order_by(DownloadClient.id))).all()
+    return [lidarr_compat.client_to_resource(c) for c in (await session.scalars(select(DownloadClient).order_by(DownloadClient.id))).all()]
 
 
-@router.post("/downloadclient", response_model=schemas.DownloadClientOut, status_code=201)
-async def create_downloadclient(body: schemas.DownloadClientIn, session: AsyncSession = Depends(get_session)):
-    if body.implementation not in downloadclients.CLIENT_TYPES:
-        raise HTTPException(400, "unknown download client type")
-    c = DownloadClient(**body.model_dump())
+@router.post("/downloadclient", status_code=201)
+async def create_downloadclient(body: dict = Body(...), session: AsyncSession = Depends(get_session)):
+    c = DownloadClient(name="", implementation="qbittorrent", url="")
+    try:
+        lidarr_compat.apply_client(c, body)
+    except ValueError as exc:
+        raise HTTPException(400, [{"propertyName": "", "errorMessage": str(exc)}]) from exc
     session.add(c)
     await session.commit()
-    return c
+    return lidarr_compat.client_to_resource(c)
 
 
-@router.put("/downloadclient/{client_id}", response_model=schemas.DownloadClientOut)
-async def update_downloadclient(client_id: int, body: schemas.DownloadClientIn, session: AsyncSession = Depends(get_session)):
+@router.get("/downloadclient/{client_id}")
+async def get_downloadclient(client_id: int, session: AsyncSession = Depends(get_session)):
     c = await session.get(DownloadClient, client_id)
     if not c:
         raise HTTPException(404)
-    for k, v in body.model_dump().items():
-        setattr(c, k, v)
+    return lidarr_compat.client_to_resource(c)
+
+
+@router.put("/downloadclient/{client_id}")
+async def update_downloadclient(client_id: int, body: dict = Body(...), session: AsyncSession = Depends(get_session)):
+    c = await session.get(DownloadClient, client_id)
+    if not c:
+        raise HTTPException(404)
+    try:
+        lidarr_compat.apply_client(c, body)
+    except ValueError as exc:
+        raise HTTPException(400, [{"propertyName": "", "errorMessage": str(exc)}]) from exc
     await session.commit()
-    return c
+    return lidarr_compat.client_to_resource(c)
 
 
-@router.delete("/downloadclient/{client_id}", status_code=204)
+@router.delete("/downloadclient/{client_id}")
 async def delete_downloadclient(client_id: int, session: AsyncSession = Depends(get_session)):
     c = await session.get(DownloadClient, client_id)
     if c:
         await session.delete(c)
         await session.commit()
+    return {}
 
 
 @router.post("/downloadclient/{client_id}/test")
@@ -222,6 +235,18 @@ async def test_downloadclient(client_id: int, session: AsyncSession = Depends(ge
         raise HTTPException(502, f"Download client test failed: {exc}") from exc
     await session.commit()
     return {"ok": True, "info": info}
+
+
+# --- quality profiles (read-only, Chordarr has three fixed ones) --------------------------
+
+
+@router.get("/qualityprofile")
+async def quality_profiles(session: AsyncSession = Depends(get_session)):
+    prefs = await get_prefs(session)
+    return [
+        {"id": i, "name": key, "description": label, "active": key == prefs.quality_profile}
+        for i, (key, label) in enumerate(QUALITY_PROFILES.items(), start=1)
+    ]
 
 
 # --- media servers ----------------------------------------------------------------------
@@ -310,7 +335,7 @@ async def release_search(release_id: int, session: AsyncSession = Depends(get_se
     return [candidate_out(c) for c in candidates]
 
 
-@router.post("/release/{release_id}/grab", response_model=schemas.DownloadOut)
+@router.post("/release/{release_id}/grab")
 async def release_grab(release_id: int, body: schemas.GrabIn, session: AsyncSession = Depends(get_session)):
     r = await session.get(Release, release_id)
     if not r:
@@ -325,34 +350,44 @@ async def release_grab(release_id: int, body: schemas.GrabIn, session: AsyncSess
         await session.commit()
         raise HTTPException(502, str(exc)) from exc
     await session.commit()
-    return dl
+    return lidarr_compat.queue_record(dl)
 
 
-@router.get("/queue", response_model=list[schemas.DownloadOut])
-async def queue(include_finished: bool = Query(True), session: AsyncSession = Depends(get_session)):
+@router.get("/queue")
+async def queue(
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(50, ge=1, le=500),
+    includeFinished: bool = Query(True),
+    session: AsyncSession = Depends(get_session),
+):
+    """Lidarr-style paged queue: ``records`` carry Lidarr's field names plus a few extras."""
     q = select(Download).order_by(Download.id.desc())
-    if not include_finished:
+    if not includeFinished:
         q = q.where(Download.status.in_(("grabbed", "downloading", "completed", "importing", "warning")))
-    return (await session.scalars(q.limit(200))).all()
+    rows = (await session.scalars(q)).all()
+    indexer_names = {i.id: i.name for i in (await session.scalars(select(Indexer))).all()}
+    client_names = {c.id: c.name for c in (await session.scalars(select(DownloadClient))).all()}
+    records = [lidarr_compat.queue_record(d, indexer_names.get(d.indexer_id), client_names.get(d.download_client_id)) for d in rows]
+    return lidarr_compat.paged(records, page, pageSize)
 
 
 @router.delete("/queue/{download_id}", status_code=204)
-async def queue_remove(download_id: int, delete_files: bool = False, session: AsyncSession = Depends(get_session)):
+async def queue_remove(download_id: int, removeFromClient: bool = True, deleteFiles: bool = False, session: AsyncSession = Depends(get_session)):
     d = await session.get(Download, download_id)
     if not d:
         return
     cfg = await session.get(DownloadClient, d.download_client_id) if d.download_client_id else None
-    if cfg and d.client_id and d.status != "imported":
+    if removeFromClient and cfg and d.client_id and d.status != "imported":
         try:
             async with downloadclients.make_client(cfg) as dc:
-                await dc.remove(d.client_id, delete_files=delete_files)
+                await dc.remove(d.client_id, delete_files=deleteFiles)
         except Exception as exc:
             log.warning("remove %s from %s: %s", d.title, cfg.name, exc)
     await session.delete(d)
     await session.commit()
 
 
-@router.post("/queue/{download_id}/import", response_model=schemas.DownloadOut)
+@router.post("/queue/{download_id}/import")
 async def queue_import(download_id: int, body: schemas.QueueImportIn | None = None, session: AsyncSession = Depends(get_session)):
     """Retry the import of a finished download, optionally forcing it or from another path."""
     d = await session.get(Download, download_id)
@@ -370,7 +405,7 @@ async def queue_import(download_id: int, body: schemas.QueueImportIn | None = No
     d.status, d.progress, d.imported_at, d.output_path = "imported", 1.0, importer.utcnow(), str(path)
     d.message = f"{len(result.files)} files → {result.destination}"
     await session.commit()
-    return d
+    return lidarr_compat.queue_record(d)
 
 
 @router.post("/import/manual")

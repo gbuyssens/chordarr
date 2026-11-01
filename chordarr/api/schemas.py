@@ -132,29 +132,6 @@ class LidarrImportIn(BaseModel):
 # --- acquisition (0.2) ------------------------------------------------------------------
 
 
-class DownloadClientIn(BaseModel):
-    name: str
-    implementation: str  # qbittorrent | sabnzbd
-    enabled: bool = True
-    priority: int = 1
-    url: str
-    username: str = ""
-    password: str = ""
-    api_key: str = ""
-    category: str = "chordarr"
-    remote_path: str = ""
-    local_path: str = ""
-    remove_completed: bool = False
-    settings: dict = {}
-
-
-class DownloadClientOut(DownloadClientIn):
-    id: int
-    last_error: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
 class MediaServerIn(BaseModel):
     name: str
     type: str  # jellyfin | plex
@@ -169,29 +146,6 @@ class MediaServerIn(BaseModel):
 class MediaServerOut(MediaServerIn):
     id: int
     last_error: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class DownloadOut(BaseModel):
-    id: int
-    release_id: int | None
-    indexer_id: int | None
-    download_client_id: int | None
-    title: str
-    guid: str
-    protocol: str
-    size: int | None
-    seeders: int | None
-    quality: str
-    client_id: str | None
-    status: str
-    progress: float
-    output_path: str | None
-    message: str
-    added_at: datetime
-    updated_at: datetime
-    imported_at: datetime | None
 
     model_config = {"from_attributes": True}
 

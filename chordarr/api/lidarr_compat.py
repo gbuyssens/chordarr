@@ -175,3 +175,187 @@ def to_resource(indexer: Indexer, mask_key: bool = True) -> dict:
         "lastError": indexer.last_error,
         "lastRss": indexer.last_rss.isoformat(timespec="seconds") if indexer.last_rss else None,
     }
+
+
+# --- download clients -------------------------------------------------------------------
+#
+# Lidarr: {"name", "enable", "protocol", "priority", "removeCompletedDownloads",
+# "removeFailedDownloads", "implementation": "QBittorrent" | "Sabnzbd", "configContract",
+# "fields": [{"name": "host"|"port"|"useSsl"|"urlBase"|"username"|"password"|"apiKey"|
+# "musicCategory", "value"}], "tags"}. Chordarr stores one URL, so host/port/useSsl/urlBase
+# are split and joined here. Remote path mappings are Chordarr extras on the resource.
+
+from urllib.parse import urlsplit  # noqa: E402
+
+CLIENT_IMPLEMENTATIONS = {
+    # Lidarr implementation → (Chordarr implementation, configContract, protocol, field names)
+    "QBittorrent": ("qbittorrent", "QBittorrentSettings", "torrent", ["host", "port", "useSsl", "urlBase", "username", "password", "musicCategory"]),
+    "Sabnzbd": ("sabnzbd", "SabnzbdSettings", "usenet", ["host", "port", "useSsl", "urlBase", "apiKey", "username", "password", "musicCategory"]),
+}
+_CLIENT_BY_INTERNAL = {v[0]: k for k, v in CLIENT_IMPLEMENTATIONS.items()}
+_CLIENT_FIELD_DEFS = {
+    "host": {"label": "Host", "type": "textbox", "value": "localhost"},
+    "port": {"label": "Port", "type": "textbox"},
+    "useSsl": {"label": "Use SSL", "type": "checkbox", "value": False},
+    "urlBase": {"label": "URL Base", "type": "textbox", "advanced": True},
+    "username": {"label": "Username", "type": "textbox", "privacy": "userName"},
+    "password": {"label": "Password", "type": "password", "privacy": "password"},
+    "apiKey": {"label": "API Key", "type": "textbox", "privacy": "apiKey"},
+    "musicCategory": {"label": "Category", "type": "textbox", "value": "chordarr"},
+}
+
+
+def split_url(url: str) -> dict:
+    u = urlsplit(url if "://" in url else f"http://{url}")
+    return {"host": u.hostname or "", "port": u.port or (443 if u.scheme == "https" else 80), "useSsl": u.scheme == "https", "urlBase": u.path.strip("/")}
+
+
+def join_url(host: str, port, use_ssl: bool, url_base: str) -> str:
+    scheme = "https" if use_ssl else "http"
+    base = f"{scheme}://{host}:{int(port) if port else (443 if use_ssl else 80)}"
+    return f"{base}/{url_base.strip('/')}" if url_base and url_base.strip("/") else base
+
+
+def client_schema() -> list[dict]:
+    out = []
+    for impl, (internal, contract, protocol, names) in CLIENT_IMPLEMENTATIONS.items():
+        fields = []
+        for i, name in enumerate(names):
+            f = {"order": i, "name": name, "advanced": False, "privacy": "normal", **_CLIENT_FIELD_DEFS[name]}
+            if name == "port":
+                f["value"] = 8080 if internal == "qbittorrent" else 8080
+            fields.append(f)
+        out.append({"enable": True, "protocol": protocol, "priority": 1, "removeCompletedDownloads": False, "removeFailedDownloads": True, "name": None, "fields": fields, "implementationName": impl, "implementation": impl, "configContract": contract, "infoLink": f"https://wiki.servarr.com/lidarr/supported#{internal}", "tags": []})
+    return out
+
+
+def apply_client(client, body: dict):
+    """Copy a Lidarr download client resource onto a :class:`DownloadClient`."""
+    impl = body.get("implementation") or _CLIENT_BY_INTERNAL.get(client.implementation or "", "")
+    if impl not in CLIENT_IMPLEMENTATIONS:
+        raise ValueError(f"unsupported download client {impl!r}; Chordarr speaks QBittorrent and Sabnzbd")
+    internal, _contract, _protocol, _names = CLIENT_IMPLEMENTATIONS[impl]
+    client.implementation = internal
+    client.name = body.get("name") or client.name or impl
+    if "enable" in body:
+        client.enabled = bool(body["enable"])
+    if body.get("priority") is not None:
+        client.priority = int(body["priority"])
+    if "removeCompletedDownloads" in body:
+        client.remove_completed = bool(body["removeCompletedDownloads"])
+    for key in ("remotePath", "localPath"):
+        if key in body:
+            setattr(client, "remote_path" if key == "remotePath" else "local_path", str(body[key] or ""))
+    fields = {f.get("name"): f.get("value") for f in body.get("fields") or []}
+    current = split_url(client.url) if client.url else {"host": "", "port": None, "useSsl": False, "urlBase": ""}
+    host = fields.get("host", current["host"])
+    port = fields.get("port", current["port"])
+    use_ssl = fields.get("useSsl", current["useSsl"])
+    url_base = fields.get("urlBase", current["urlBase"]) or ""
+    if not host:
+        raise ValueError("host is required")
+    client.url = join_url(str(host), port, bool(use_ssl), str(url_base))
+    for name, attr in (("username", "username"), ("apiKey", "api_key"), ("musicCategory", "category")):
+        if name in fields and fields[name] is not None:
+            setattr(client, attr, str(fields[name]))
+    if "password" in fields and fields["password"] not in (None, MASK):
+        client.password = str(fields["password"])
+    if "apiKey" in fields and fields["apiKey"] == MASK:
+        pass
+    extra = dict(client.settings or {})
+    known = {"host", "port", "useSsl", "urlBase", "username", "password", "apiKey", "musicCategory"}
+    extra.update({k: v for k, v in fields.items() if k not in known and k})
+    if "removeFailedDownloads" in body:
+        extra["removeFailedDownloads"] = bool(body["removeFailedDownloads"])
+    client.settings = extra
+    return client
+
+
+def client_to_resource(client) -> dict:
+    impl = _CLIENT_BY_INTERNAL.get(client.implementation, "QBittorrent")
+    _internal, contract, protocol, names = CLIENT_IMPLEMENTATIONS[impl]
+    parts = split_url(client.url)
+    values = {
+        "host": parts["host"],
+        "port": parts["port"],
+        "useSsl": parts["useSsl"],
+        "urlBase": parts["urlBase"],
+        "username": client.username,
+        "password": MASK if client.password else "",
+        "apiKey": MASK if client.api_key else "",
+        "musicCategory": client.category,
+    }
+    fields = [{"order": i, "name": n, "advanced": False, "privacy": "normal", **{k: v for k, v in _CLIENT_FIELD_DEFS[n].items() if k != "value"}, "value": values[n]} for i, n in enumerate(names)]
+    for name, value in (client.settings or {}).items():
+        if name != "removeFailedDownloads":
+            fields.append({"order": len(fields), "name": name, "label": name, "value": value, "type": "textbox", "advanced": True, "privacy": "normal"})
+    return {
+        "id": client.id,
+        "name": client.name,
+        "enable": client.enabled,
+        "protocol": protocol,
+        "priority": client.priority,
+        "removeCompletedDownloads": client.remove_completed,
+        "removeFailedDownloads": bool((client.settings or {}).get("removeFailedDownloads", True)),
+        "implementationName": impl,
+        "implementation": impl,
+        "configContract": contract,
+        "infoLink": f"https://wiki.servarr.com/lidarr/supported#{client.implementation}",
+        "fields": fields,
+        "tags": [],
+        # Chordarr extras (Lidarr keeps these in /remotepathmapping)
+        "remotePath": client.remote_path,
+        "localPath": client.local_path,
+        "lastError": client.last_error,
+    }
+
+
+# --- queue ------------------------------------------------------------------------------
+
+_QUEUE_STATES = {
+    # Chordarr status → (Lidarr status, trackedDownloadStatus, trackedDownloadState)
+    "grabbed": ("queued", "ok", "downloading"),
+    "downloading": ("downloading", "ok", "downloading"),
+    "completed": ("completed", "ok", "importPending"),
+    "importing": ("completed", "ok", "importing"),
+    "imported": ("completed", "ok", "imported"),
+    "failed": ("failed", "error", "failedPending"),
+    "warning": ("completed", "warning", "importPending"),
+}
+
+
+def queue_record(d, indexer_name: str | None = None, client_name: str | None = None) -> dict:
+    status, tracked, state = _QUEUE_STATES.get(d.status, ("unknown", "warning", "downloading"))
+    size = d.size or 0
+    return {
+        "id": d.id,
+        "artistId": d.release.artist_id if d.release else None,
+        "albumId": d.release_id,
+        "title": d.title,
+        "quality": {"quality": {"name": d.quality}},
+        "size": size,
+        "sizeleft": int(size * (1 - (d.progress or 0))),
+        "status": status,
+        "trackedDownloadStatus": tracked,
+        "trackedDownloadState": state,
+        "statusMessages": [{"title": d.title, "messages": [d.message]}] if d.message and d.status in ("warning", "failed") else [],
+        "errorMessage": d.message if d.status == "failed" else None,
+        "downloadId": d.client_id,
+        "protocol": d.protocol,
+        "downloadClient": client_name,
+        "downloadClientId": d.download_client_id,
+        "indexer": indexer_name,
+        "indexerId": d.indexer_id,
+        "outputPath": d.output_path,
+        "added": d.added_at.isoformat(timespec="seconds") if d.added_at else None,
+        # Chordarr extras
+        "progress": d.progress,
+        "guid": d.guid,
+        "seeders": d.seeders,
+        "message": d.message,
+        "importedAt": d.imported_at.isoformat(timespec="seconds") if d.imported_at else None,
+    }
+
+
+def paged(records: list[dict], page: int = 1, page_size: int = 50, sort_key: str = "added") -> dict:
+    return {"page": page, "pageSize": page_size, "sortKey": sort_key, "sortDirection": "descending", "totalRecords": len(records), "records": records[(page - 1) * page_size : page * page_size]}
