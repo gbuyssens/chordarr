@@ -56,7 +56,9 @@ def test_qbittorrent_add_login_and_items(monkeypatch):
                 return httpx.Response(200, text="Ok.")
             if len(seen["adds"]) == 2:  # qBittorrent 5.3+ answers JSON
                 return httpx.Response(200, json={"added_torrent_ids": ["ABCDEF0123456789ABCDEF0123456789ABCDEF01"], "failure_count": 0})
-            return httpx.Response(200, json={"added_torrent_ids": [], "failure_count": 1})  # duplicate
+            if len(seen["adds"]) == 3:
+                return httpx.Response(200, json={"added_torrent_ids": [], "failure_count": 1})  # duplicate, 5.3.0
+            return httpx.Response(409, text="Torrent already exists")  # duplicate, later 5.x
         if p == "/api/v2/torrents/info" and "hashes" in request.url.params:
             return httpx.Response(200, json=[{"hash": request.url.params["hashes"]}])
         if p == "/api/v2/torrents/info":
@@ -83,6 +85,7 @@ def test_qbittorrent_add_login_and_items(monkeypatch):
             assert b"Damso - QALF.torrent" in seen["adds"][0] and b"chordarr" in seen["adds"][0]
             assert await c.add("m", url="magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01") == "abcdef0123456789abcdef0123456789abcdef01"
             assert await c.add("again", torrent=TORRENT) == torrent_info(TORRENT)[0]  # duplicate: already in the client
+            assert await c.add("again", torrent=TORRENT) == torrent_info(TORRENT)[0]  # duplicate answered with 409
             items = await c.items()
             assert [(i.client_id, i.status, i.progress) for i in items] == [("abc", "completed", 1.0), ("def", "downloading", 0.4), ("err", "failed", 0.1)]
             assert items[0].path == "/data/torrents/chordarr/Damso - QALF" and items[0].eta is None and items[1].eta == 120

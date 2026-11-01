@@ -176,12 +176,19 @@ class QBittorrent:
         data = {"category": self.cfg.category or "", "autoTMM": "true"}
         if torrent:
             info_hash, _ = torrent_info(torrent)
-            r = await self._call("POST", "/api/v2/torrents/add", data=data, files={"torrents": (f"{name}.torrent", torrent, "application/x-bittorrent")})
+            kw = {"data": data, "files": {"torrents": (f"{name}.torrent", torrent, "application/x-bittorrent")}}
         elif url:
             info_hash = magnet_hash(url) or ""
-            r = await self._call("POST", "/api/v2/torrents/add", data={**data, "urls": url})
+            kw = {"data": {**data, "urls": url}}
         else:
             raise ClientError("nothing to add")
+        try:
+            r = await self._call("POST", "/api/v2/torrents/add", **kw)
+        except httpx.HTTPStatusError as exc:
+            # 409: already in the client (qBittorrent 5.3+); that is fine for a re-grab.
+            if exc.response.status_code == 409 and info_hash and await self._exists(info_hash):
+                return info_hash
+            raise
         return await self._added(r, info_hash)
 
     async def _added(self, r: httpx.Response, info_hash: str) -> str:
