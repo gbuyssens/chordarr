@@ -19,7 +19,6 @@ from chordarr.services.prefs import get_prefs
 log = logging.getLogger(__name__)
 
 state: dict = {"running": {}, "last": {}, "errors": {}}
-acquisition_hooks: dict = {}  # filled by the acquisition module when present: "rss", "search"
 _lock = asyncio.Lock()  # one heavy job at a time
 _wake = asyncio.Event()
 

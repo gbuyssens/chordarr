@@ -370,7 +370,7 @@ async def run_command(body: dict, session: AsyncSession = Depends(get_session)):
             await session.commit()
             scheduler.trigger("notify")
         return _record_command(name, body, "completed")
-    if job in ("refresh", "scan", "recommendations", "notify"):
+    if job in ("refresh", "scan", "recommendations", "notify", "rss", "search", "queue"):
         scheduler.trigger(job)
         return _record_command(name, body, "started")
     if job == "update":
@@ -383,11 +383,6 @@ async def run_command(body: dict, session: AsyncSession = Depends(get_session)):
 
         await backup.create("manual")
         return _record_command(name, body, "completed")
-    # rss / search: acquisition hooks (0.2) register themselves here when present.
-    hook = getattr(scheduler, "acquisition_hooks", {}).get(job)
-    if hook:
-        await hook(body)
-        return _record_command(name, body, "started")
     return _record_command(name, body, "completed")
 
 
