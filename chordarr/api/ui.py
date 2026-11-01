@@ -16,14 +16,46 @@ from chordarr.api.auth import COOKIE, session_token, ui_authenticated
 from chordarr.config import settings
 from chordarr.db import get_session
 from chordarr.metadata import musicbrainz as mb
-from chordarr.models import Artist, Event, Notifier, Recommendation, Release
+from chordarr.models import (
+    Artist,
+    Download,
+    DownloadClient,
+    Event,
+    Indexer,
+    MediaServer,
+    Notifier,
+    Recommendation,
+    Release,
+)
+from chordarr.services import (
+    acquisition,
+    downloadclients,
+    importer,
+    indexers,
+    library,
+    lidarr_import,
+    mediaservers,
+    notify,
+    scheduler,
+)
 from chordarr.services import artists as artist_service
-from chordarr.services import library, lidarr_import, notify, scheduler
 from chordarr.services.events import EVENT_TYPES
+from chordarr.services.indexers import human_size
+from chordarr.services.prefs import QUALITY_PROFILES, get_prefs, set_prefs
 
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
-templates.env.globals.update(version=__version__, settings=settings, EVENT_TYPES=EVENT_TYPES, NOTIFIER_TYPES=notify.NOTIFIER_TYPES, today=date.today)
+templates.env.globals.update(
+    version=__version__,
+    settings=settings,
+    EVENT_TYPES=EVENT_TYPES,
+    NOTIFIER_TYPES=notify.NOTIFIER_TYPES,
+    CLIENT_TYPES=downloadclients.CLIENT_TYPES,
+    MEDIA_SERVER_TYPES=mediaservers.MEDIA_SERVER_TYPES,
+    QUALITY_PROFILES=QUALITY_PROFILES,
+    human_size=human_size,
+    today=date.today,
+)
 
 
 def render(request: Request, name: str, **ctx) -> HTMLResponse:
@@ -277,7 +309,19 @@ async def settings_page(request: Request, session: AsyncSession = Depends(get_se
     notifiers = (await session.scalars(select(Notifier).order_by(Notifier.id))).all()
     known = {a.path for a in (await session.scalars(select(Artist))).all() if a.path}
     unknown = library.unknown_artist_folders(known)
-    return render(request, "settings.html", notifiers=notifiers, unknown=unknown, jobs=scheduler.status(), notice=request.query_params.get("notice"), api_key=settings.api_key)
+    return render(
+        request,
+        "settings.html",
+        notifiers=notifiers,
+        unknown=unknown,
+        jobs=scheduler.status(),
+        notice=request.query_params.get("notice"),
+        api_key=settings.api_key,
+        prefs=await get_prefs(session),
+        indexers=(await session.scalars(select(Indexer).order_by(Indexer.priority, Indexer.id))).all(),
+        clients=(await session.scalars(select(DownloadClient).order_by(DownloadClient.id))).all(),
+        mediaservers=(await session.scalars(select(MediaServer).order_by(MediaServer.id))).all(),
+    )
 
 
 @protected.post("/settings/notifiers")
@@ -346,11 +390,282 @@ async def import_lidarr_ui(
 
 
 @protected.post("/settings/jobs/{name}")
-async def run_job(name: str):
-    if name not in ("refresh", "scan", "recommendations", "notify"):
+async def run_job(request: Request, name: str):
+    if name not in ("refresh", "scan", "recommendations", "notify", "rss", "search", "queue"):
         raise HTTPException(404)
     scheduler.trigger(name)
-    return RedirectResponse(f"{settings.url_base}/settings?notice={name}+started", status_code=303)
+    back = request.headers.get("referer") or f"{settings.url_base}/settings"
+    sep = "&" if "?" in back else "?"
+    return RedirectResponse(f"{back.split('?notice=')[0]}{sep}notice={name}+started", status_code=303)
+
+
+# --- acquisition settings ---------------------------------------------------------------
+
+
+def _settings_redirect(anchor: str, notice: str) -> RedirectResponse:
+    return RedirectResponse(f"{settings.url_base}/settings?notice={notice}#{anchor}", status_code=303)
+
+
+@protected.post("/settings/acquisition")
+async def acquisition_prefs(auto_grab: bool = Form(False), quality_profile: str = Form("lossless"), session: AsyncSession = Depends(get_session)):
+    if quality_profile not in QUALITY_PROFILES:
+        raise HTTPException(400)
+    await set_prefs(session, auto_grab=auto_grab, quality_profile=quality_profile)
+    await session.commit()
+    if auto_grab:
+        scheduler.wake()
+    return _settings_redirect("acquisition", "acquisition+settings+saved")
+
+
+@protected.post("/settings/indexers")
+async def indexer_create(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    try:
+        cats = [int(c) for c in str(form.get("categories", "3000")).replace(";", ",").split(",") if c.strip()]
+        i = Indexer(
+            name=form.get("name") or "Indexer",
+            implementation="Newznab" if form.get("implementation") == "Newznab" else "Torznab",
+            base_url=str(form.get("base_url", "")).strip(),
+            api_path=str(form.get("api_path") or "/api"),
+            api_key=str(form.get("api_key", "")),
+            categories=cats or [3000],
+            priority=int(form.get("priority") or 25),
+            minimum_seeders=int(form.get("minimum_seeders") or 0),
+        )
+    except ValueError as exc:
+        return _settings_redirect("indexers", f"invalid+indexer:+{str(exc)[:80]}")
+    if not i.base_url:
+        return _settings_redirect("indexers", "indexer+URL+is+required")
+    try:
+        i.capabilities = await indexers.caps(i)
+    except Exception as exc:
+        i.last_error = str(exc)[:300]
+    session.add(i)
+    await session.commit()
+    return _settings_redirect("indexers", "indexer+added" if not i.last_error else "indexer+added,+but+unreachable")
+
+
+@protected.post("/settings/indexers/{indexer_id}/{action}")
+async def indexer_action(indexer_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    i = await session.get(Indexer, indexer_id)
+    if not i:
+        raise HTTPException(404)
+    notice = ""
+    if action == "delete":
+        await session.delete(i)
+        notice = "indexer+removed"
+    elif action == "toggle":
+        on = not (i.enable_rss or i.enable_automatic_search or i.enable_interactive_search)
+        i.enable_rss = i.enable_automatic_search = i.enable_interactive_search = on
+    elif action == "test":
+        try:
+            i.capabilities = await indexers.test(i)
+            i.last_error = None
+            notice = f"{i.name}:+OK,+music+search+params+{','.join(i.capabilities.get('music_params') or ['none'])}"
+        except Exception as exc:
+            i.last_error = str(exc)[:300]
+            notice = f"test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return _settings_redirect("indexers", notice)
+
+
+@protected.post("/settings/clients")
+async def client_create(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    impl = form.get("implementation")
+    if impl not in downloadclients.CLIENT_TYPES:
+        raise HTTPException(400)
+    c = DownloadClient(
+        name=form.get("name") or downloadclients.CLIENT_TYPES[impl]["label"],
+        implementation=impl,
+        url=str(form.get("url", "")).strip(),
+        username=str(form.get("username", "")),
+        password=str(form.get("password", "")),
+        api_key=str(form.get("api_key", "")),
+        category=str(form.get("category") or "chordarr"),
+        remote_path=str(form.get("remote_path", "")).strip(),
+        local_path=str(form.get("local_path", "")).strip(),
+        remove_completed=bool(form.get("remove_completed")),
+    )
+    if not c.url:
+        return _settings_redirect("clients", "client+URL+is+required")
+    session.add(c)
+    await session.commit()
+    return _settings_redirect("clients", "download+client+added")
+
+
+@protected.post("/settings/clients/{client_id}/{action}")
+async def client_action(client_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    c = await session.get(DownloadClient, client_id)
+    if not c:
+        raise HTTPException(404)
+    notice = ""
+    if action == "delete":
+        await session.delete(c)
+        notice = "download+client+removed"
+    elif action == "toggle":
+        c.enabled = not c.enabled
+    elif action == "test":
+        try:
+            notice = (await downloadclients.test(c)).replace(" ", "+") + "+reachable"
+            c.last_error = None
+        except Exception as exc:
+            c.last_error = str(exc)[:300]
+            notice = f"test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return _settings_redirect("clients", notice)
+
+
+@protected.post("/settings/mediaservers")
+async def mediaserver_create(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    kind = form.get("type")
+    if kind not in mediaservers.MEDIA_SERVER_TYPES:
+        raise HTTPException(400)
+    m = MediaServer(
+        name=form.get("name") or mediaservers.MEDIA_SERVER_TYPES[kind]["label"],
+        type=kind,
+        url=str(form.get("url", "")).strip(),
+        api_key=str(form.get("api_key", "")),
+        section=str(form.get("section", "")).strip(),
+        local_path=str(form.get("local_path", "")).strip(),
+        remote_path=str(form.get("remote_path", "")).strip(),
+    )
+    if not m.url:
+        return _settings_redirect("mediaservers", "media+server+URL+is+required")
+    session.add(m)
+    await session.commit()
+    return _settings_redirect("mediaservers", "media+server+added")
+
+
+@protected.post("/settings/mediaservers/{server_id}/{action}")
+async def mediaserver_action(server_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    m = await session.get(MediaServer, server_id)
+    if not m:
+        raise HTTPException(404)
+    notice = ""
+    if action == "delete":
+        await session.delete(m)
+        notice = "media+server+removed"
+    elif action == "toggle":
+        m.enabled = not m.enabled
+    elif action == "test":
+        try:
+            notice = (await mediaservers.test(m)).replace(" ", "+")
+            m.last_error = None
+        except Exception as exc:
+            m.last_error = str(exc)[:300]
+            notice = f"test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return _settings_redirect("mediaservers", notice)
+
+
+# --- search, grab, queue ----------------------------------------------------------------
+
+
+@protected.get("/releases/{release_id}/search", response_class=HTMLResponse)
+async def release_search_page(request: Request, release_id: int, session: AsyncSession = Depends(get_session)):
+    r = await session.get(Release, release_id)
+    if not r:
+        raise HTTPException(404)
+    artist = await session.get(Artist, r.artist_id)
+    candidates = await acquisition.search_release(session, r)
+    idx = (await session.scalars(select(Indexer).order_by(Indexer.priority))).all()
+    prefs = await get_prefs(session)
+    await session.commit()
+    return render(request, "search.html", release=r, artist=artist, candidates=candidates, indexers=[i for i in idx if i.enable_interactive_search], prefs=prefs, notice=request.query_params.get("notice"))
+
+
+@protected.post("/releases/{release_id}/grab")
+async def release_grab_submit(release_id: int, guid: str = Form(...), indexer_id: int = Form(...), session: AsyncSession = Depends(get_session)):
+    r = await session.get(Release, release_id)
+    if not r:
+        raise HTTPException(404)
+    candidates = await acquisition.search_release(session, r)
+    chosen = next((c for c in candidates if c.guid == guid and c.indexer_id == indexer_id), None)
+    if chosen is None:
+        return RedirectResponse(f"{settings.url_base}/releases/{release_id}/search?notice=that+result+is+gone,+search+again", status_code=303)
+    try:
+        await acquisition.grab(session, r, chosen, manual=True)
+    except acquisition.GrabError as exc:
+        await session.commit()
+        return RedirectResponse(f"{settings.url_base}/releases/{release_id}/search?notice=grab+failed:+{str(exc)[:120]}", status_code=303)
+    await session.commit()
+    scheduler.wake()
+    return RedirectResponse(f"{settings.url_base}/queue?notice=sent+to+the+download+client", status_code=303)
+
+
+@protected.get("/queue", response_class=HTMLResponse)
+async def queue_page(request: Request, session: AsyncSession = Depends(get_session)):
+    downloads = (await session.scalars(select(Download).order_by(Download.id.desc()).limit(200))).all()
+    artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
+    wanted = (
+        await session.scalars(
+            select(Release).where(Release.status.in_(("missing", "partial")), Release.first_release_date <= date.today()).order_by(Release.first_release_date.desc()).limit(400)
+        )
+    ).all()
+    wanted.sort(key=lambda r: (artists[r.artist_id].sort_name if r.artist_id in artists else "", r.title))
+    clients = (await session.scalars(select(DownloadClient).where(DownloadClient.enabled.is_(True)))).all()
+    return render(request, "queue.html", downloads=downloads, artists=artists, wanted=wanted, clients=clients, prefs=await get_prefs(session), jobs=scheduler.status(), notice=request.query_params.get("notice"))
+
+
+@protected.post("/queue/refresh")
+async def queue_refresh():
+    scheduler.trigger("queue")
+    return RedirectResponse(f"{settings.url_base}/queue?notice=checking+downloads", status_code=303)
+
+
+@protected.post("/queue/{download_id}/remove")
+async def queue_remove_ui(download_id: int, session: AsyncSession = Depends(get_session)):
+    d = await session.get(Download, download_id)
+    if d:
+        cfg = await session.get(DownloadClient, d.download_client_id) if d.download_client_id else None
+        if cfg and d.client_id and d.status != "imported":
+            try:
+                async with downloadclients.make_client(cfg) as dc:
+                    await dc.remove(d.client_id, delete_files=False)
+            except Exception:
+                pass
+        await session.delete(d)
+        await session.commit()
+    return RedirectResponse(f"{settings.url_base}/queue?notice=removed", status_code=303)
+
+
+@protected.post("/queue/{download_id}/import")
+async def queue_import_ui(download_id: int, force: bool = Form(False), session: AsyncSession = Depends(get_session)):
+    d = await session.get(Download, download_id)
+    if not d or not d.release or not d.output_path:
+        return RedirectResponse(f"{settings.url_base}/queue?notice=nothing+to+import+for+this+entry", status_code=303)
+    try:
+        result = await importer.import_folder(session, Path(d.output_path), d.release, mode=importer.effective_mode(d.protocol), force=force)
+    except importer.ImportError_ as exc:
+        d.status, d.message = "warning", f"import needs attention: {exc}"
+        await session.commit()
+        return RedirectResponse(f"{settings.url_base}/queue?notice=import+failed:+{str(exc)[:120]}", status_code=303)
+    d.status, d.progress, d.imported_at = "imported", 1.0, importer.utcnow()
+    d.message = f"{len(result.files)} files → {result.destination}"
+    await session.commit()
+    return RedirectResponse(f"{settings.url_base}/queue?notice=imported+{len(result.files)}+files", status_code=303)
+
+
+@protected.post("/import/manual")
+async def manual_import_ui(
+    path: str = Form(...),
+    release_id: str = Form(""),
+    mode: str = Form(""),
+    force: bool = Form(False),
+    session: AsyncSession = Depends(get_session),
+):
+    src = Path(path.strip())
+    release = await session.get(Release, int(release_id)) if release_id else await importer.guess_release(session, src)
+    if release is None:
+        return RedirectResponse(f"{settings.url_base}/queue?notice=could+not+tell+which+release+this+is;+pick+one#manual", status_code=303)
+    try:
+        result = await importer.import_folder(session, src, release, mode=mode or importer.effective_mode(None), force=force)
+    except importer.ImportError_ as exc:
+        return RedirectResponse(f"{settings.url_base}/queue?notice=import+failed:+{str(exc)[:140]}#manual", status_code=303)
+    await session.commit()
+    return RedirectResponse(f"{settings.url_base}/artists/{release.artist_id}?notice=imported+{len(result.files)}+files+into+{result.destination.name}", status_code=303)
 
 
 router.include_router(protected)

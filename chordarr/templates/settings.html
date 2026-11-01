@@ -9,6 +9,8 @@
 <tr><th>Root folder</th><td><code>{{ settings.root_folder or 'not set — CHORDARR_ROOT_FOLDER' }}</code></td></tr>
 <tr><th>API key</th><td><code class="secret" onclick="this.classList.toggle('show')">{{ api_key }}</code> <span class="sub small">(click to reveal · header <code>X-Api-Key</code>)</span></td></tr>
 <tr><th>Refresh / scan / discover</th><td>every {{ settings.refresh_interval_hours }} h / {{ settings.scan_interval_hours }} h / {{ settings.recommendations_interval_hours }} h</td></tr>
+<tr><th>RSS / search / queue</th><td>every {{ settings.rss_interval_minutes|int }} min / {{ settings.search_interval_hours }} h / {{ settings.queue_poll_seconds|int }} s</td></tr>
+<tr><th>Naming</th><td><code>{{ settings.artist_folder_format }}/{{ settings.album_folder_format }}/{{ settings.track_format }}.ext</code> · import mode <code>{{ settings.import_mode }}</code></td></tr>
 </table>
 <p class="sub small">Configuration is read from environment variables prefixed <code>CHORDARR_</code> or from <code>chordarr.toml</code> in the data directory.</p>
 </section>
@@ -16,7 +18,7 @@
 <section>
 <h2>Jobs</h2>
 <div class="toolbar">
-{% for j in ['refresh','scan','recommendations','notify'] %}
+{% for j in ['refresh','scan','recommendations','notify','rss','search','queue'] %}
 <form method="post" action="{{ settings.url_base }}/settings/jobs/{{ j }}"><button {% if j in jobs.running %}disabled{% endif %}>{{ '⟳ ' if j in jobs.running }}{{ j }}</button></form>
 {% endfor %}
 </div>
@@ -57,6 +59,105 @@
   <button>Add</button>
 </form>
 <p class="sub small">Webhook payload: JSON with <code>event</code>, <code>title</code>, <code>body</code>, <code>artist</code>, <code>release</code>; header <code>X-Chordarr-Event</code>, optional bearer secret.</p>
+</details>
+</section>
+
+<section id="acquisition">
+<h2>Acquisition</h2>
+<form method="post" action="{{ settings.url_base }}/settings/acquisition" class="stack">
+  <label class="inline"><input type="checkbox" name="auto_grab" {% if prefs.auto_grab %}checked{% endif %}> Grab wanted releases automatically (RSS and periodic search). Off: nothing is downloaded until you pick a result in <em>Search</em>.</label>
+  <label>Quality profile <select name="quality_profile">{% for k, label in QUALITY_PROFILES.items() %}<option value="{{ k }}" {% if prefs.quality_profile == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <button>Save</button>
+</form>
+</section>
+
+<section id="indexers">
+<h2>Indexers <small>{{ indexers|length }}</small></h2>
+<p class="sub small">Torznab and Newznab. The easiest way is to add Chordarr to <b>Prowlarr</b> as a <em>Lidarr</em> application (this URL + the API key above): Prowlarr pushes and updates its indexers here itself.</p>
+{% for i in indexers %}
+<div class="row">
+  <div class="meta"><div class="title">{{ i.name }} <small>{{ i.implementation }} · priority {{ i.priority }}</small> {% if not (i.enable_rss or i.enable_automatic_search or i.enable_interactive_search) %}<span class="badge off">disabled</span>{% endif %}</div>
+  <div class="sub small"><code>{{ i.base_url }}</code> · categories {{ i.categories|join(', ') }}{% if i.protocol == 'torrent' %} · min seeders {{ i.minimum_seeders }}{% endif %} · {{ 'rss' if i.enable_rss }} {{ 'auto' if i.enable_automatic_search }} {{ 'interactive' if i.enable_interactive_search }}{% if i.capabilities.music_params %} · music search: {{ i.capabilities.music_params|join(', ') }}{% endif %}{% if i.last_rss %} · last RSS {{ i.last_rss.strftime('%Y-%m-%d %H:%M') }}{% endif %}{% if i.last_error %} · <span class="error">{{ i.last_error }}</span>{% endif %}</div></div>
+  <div class="actions">
+    <form method="post" action="{{ settings.url_base }}/settings/indexers/{{ i.id }}/test"><button class="mini">Test</button></form>
+    <form method="post" action="{{ settings.url_base }}/settings/indexers/{{ i.id }}/toggle"><button class="mini">{{ 'Disable' if (i.enable_rss or i.enable_automatic_search or i.enable_interactive_search) else 'Enable' }}</button></form>
+    <form method="post" action="{{ settings.url_base }}/settings/indexers/{{ i.id }}/delete" onsubmit="return confirm('Remove this indexer? Prowlarr will push it again if it manages it.')"><button class="mini danger">Remove</button></form>
+  </div>
+</div>
+{% endfor %}
+<details class="add">
+<summary>Add an indexer by hand</summary>
+<form method="post" action="{{ settings.url_base }}/settings/indexers" class="stack">
+  <label>Name <input name="name" required></label>
+  <label>Type <select name="implementation"><option>Torznab</option><option>Newznab</option></select></label>
+  <label>URL <input name="base_url" required placeholder="http://prowlarr:9696/1/"></label>
+  <label>API path <input name="api_path" value="/api"></label>
+  <label>API key <input name="api_key" type="password"></label>
+  <label>Categories <input name="categories" value="3000,3010,3040"></label>
+  <label>Priority (1 first … 50 last) <input name="priority" type="number" value="25" min="1" max="50"></label>
+  <label>Minimum seeders (torrents) <input name="minimum_seeders" type="number" value="1" min="0"></label>
+  <button>Add</button>
+</form>
+</details>
+</section>
+
+<section id="clients">
+<h2>Download clients <small>{{ clients|length }}</small></h2>
+{% for c in clients %}
+<div class="row">
+  <div class="meta"><div class="title">{{ c.name }} <small>{{ CLIENT_TYPES[c.implementation].label if c.implementation in CLIENT_TYPES else c.implementation }}</small> {% if not c.enabled %}<span class="badge off">disabled</span>{% endif %}</div>
+  <div class="sub small"><code>{{ c.url }}</code> · category <code>{{ c.category }}</code>{% if c.remote_path %} · <code>{{ c.remote_path }}</code> → <code>{{ c.local_path }}</code>{% endif %}{% if c.remove_completed %} · removes finished downloads{% endif %}{% if c.last_error %} · <span class="error">{{ c.last_error }}</span>{% endif %}</div></div>
+  <div class="actions">
+    <form method="post" action="{{ settings.url_base }}/settings/clients/{{ c.id }}/test"><button class="mini">Test</button></form>
+    <form method="post" action="{{ settings.url_base }}/settings/clients/{{ c.id }}/toggle"><button class="mini">{{ 'Disable' if c.enabled else 'Enable' }}</button></form>
+    <form method="post" action="{{ settings.url_base }}/settings/clients/{{ c.id }}/delete" onsubmit="return confirm('Remove this download client?')"><button class="mini danger">Remove</button></form>
+  </div>
+</div>
+{% endfor %}
+<details class="add">
+<summary>Add a download client</summary>
+<form method="post" action="{{ settings.url_base }}/settings/clients" class="stack">
+  <label>Name <input name="name" required placeholder="qBittorrent"></label>
+  <label>Type <select name="implementation">{% for k, d in CLIENT_TYPES.items() %}<option value="{{ k }}">{{ d.label }}</option>{% endfor %}</select></label>
+  <label>URL <input name="url" required placeholder="http://localhost:8080"></label>
+  <label>Username (qBittorrent) <input name="username" autocomplete="off"></label>
+  <label>Password (qBittorrent) <input name="password" type="password" autocomplete="new-password"></label>
+  <label>API key (SABnzbd) <input name="api_key" type="password" autocomplete="new-password"></label>
+  <label>Category <input name="category" value="chordarr"></label>
+  <label>Remote path (as the client sees it, when on another machine) <input name="remote_path" placeholder="/downloads"></label>
+  <label>Local path (the same folder as Chordarr sees it) <input name="local_path" placeholder="/mnt/downloads"></label>
+  <label class="inline"><input type="checkbox" name="remove_completed"> Remove torrents from the client once imported (usenet downloads are always cleaned up)</label>
+  <button>Add</button>
+</form>
+</details>
+</section>
+
+<section id="mediaservers">
+<h2>Media servers <small>{{ mediaservers|length }}</small></h2>
+<p class="sub small">After each import the imported folder is scanned, nothing more: Jellyfin <code>POST /Library/Media/Updated</code>, Plex section refresh with a path.</p>
+{% for m in mediaservers %}
+<div class="row">
+  <div class="meta"><div class="title">{{ m.name }} <small>{{ MEDIA_SERVER_TYPES[m.type].label if m.type in MEDIA_SERVER_TYPES else m.type }}</small> {% if not m.enabled %}<span class="badge off">disabled</span>{% endif %}</div>
+  <div class="sub small"><code>{{ m.url }}</code>{% if m.local_path %} · <code>{{ m.local_path }}</code> → <code>{{ m.remote_path }}</code>{% endif %}{% if m.section %} · section {{ m.section }}{% endif %}{% if m.last_error %} · <span class="error">{{ m.last_error }}</span>{% endif %}</div></div>
+  <div class="actions">
+    <form method="post" action="{{ settings.url_base }}/settings/mediaservers/{{ m.id }}/test"><button class="mini">Test</button></form>
+    <form method="post" action="{{ settings.url_base }}/settings/mediaservers/{{ m.id }}/toggle"><button class="mini">{{ 'Disable' if m.enabled else 'Enable' }}</button></form>
+    <form method="post" action="{{ settings.url_base }}/settings/mediaservers/{{ m.id }}/delete" onsubmit="return confirm('Remove this media server?')"><button class="mini danger">Remove</button></form>
+  </div>
+</div>
+{% endfor %}
+<details class="add">
+<summary>Add a media server</summary>
+<form method="post" action="{{ settings.url_base }}/settings/mediaservers" class="stack">
+  <label>Name <input name="name" required placeholder="Jellyfin"></label>
+  <label>Type <select name="type">{% for k, d in MEDIA_SERVER_TYPES.items() %}<option value="{{ k }}">{{ d.label }}</option>{% endfor %}</select></label>
+  <label>URL <input name="url" required placeholder="http://jellyfin:8096"></label>
+  <label>API key / Plex token <input name="api_key" type="password" autocomplete="new-password"></label>
+  <label>Plex section id (optional, found otherwise) <input name="section"></label>
+  <label>Local path (root folder as Chordarr sees it) <input name="local_path" placeholder="{{ settings.root_folder or '/music' }}"></label>
+  <label>Remote path (the same folder as the server sees it) <input name="remote_path" placeholder="/media/music"></label>
+  <button>Add</button>
+</form>
 </details>
 </section>
 

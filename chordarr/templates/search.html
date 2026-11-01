@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}Search · {{ release.title }} · Chordarr{% endblock %}
+{% block content %}
+<h1>Search: {{ artist.name }} – {{ release.title }} <small>{{ release.type_label }} · {{ release.first_release_date or 'date unknown' }}</small></h1>
+<p class="sub">{{ candidates|length }} results from {{ indexers|length }} indexer{{ 's' if indexers|length != 1 }} · profile <b>{{ prefs.quality_profile }}</b> · <a href="{{ settings.url_base }}/artists/{{ artist.id }}#rg-{{ release.mbid }}">back to {{ artist.name }}</a>
+{% if not indexers %}<br><span class="error">No indexer configured. Add one in Settings, or let Prowlarr push them.</span>{% endif %}
+{% for i in indexers if i.last_error %}<br><span class="error">{{ i.name }}: {{ i.last_error }}</span>{% endfor %}</p>
+<table class="releases">
+{% for c in candidates %}
+<tr class="{{ 'have' if c.accepted else 'unmonitored' }}">
+  <td><div class="title">{{ c.title }}</div>
+    <div class="sub small">{{ c.indexer_name }} · {{ c.protocol }}{% if c.published %} · {{ c.published.strftime('%Y-%m-%d') }}{% endif %}{% if c.info_url %} · <a target="_blank" rel="noopener" href="{{ c.info_url }}">info ↗</a>{% endif %}
+    {% if c.rejections %}<br><span class="error">{{ c.rejections|join(' · ') }}</span>{% endif %}</div></td>
+  <td class="date">{{ c.size_label }}</td>
+  <td class="date">{% if c.protocol == 'torrent' %}{{ c.seeders if c.seeders is not none else '?' }} seed{% endif %}</td>
+  <td><span class="badge {{ 'have' if c.quality == 'lossless' else 'partial' if c.quality == 'high' else 'missing' }}">{{ c.quality }}</span></td>
+  <td class="actions"><form method="post" action="{{ settings.url_base }}/releases/{{ release.id }}/grab"><input type="hidden" name="guid" value="{{ c.guid }}"><input type="hidden" name="indexer_id" value="{{ c.indexer_id }}"><button class="mini {{ 'on' if c.accepted }}">Grab</button></form></td>
+</tr>
+{% else %}
+<tr><td class="empty">Nothing found{% if indexers %} on {{ indexers|map(attribute='name')|join(', ') }}{% endif %}.</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

@@ -26,7 +26,7 @@
   <td><div class="title">{{ r.title }}</div><div class="sub small">{{ r.type_label }}{% if r.artist_credit and r.artist_credit != artist.name %} · {{ r.artist_credit }}{% endif %}</div></td>
   <td class="date">{{ r.first_release_date or '—' }}</td>
   <td><span class="badge {{ r.status }}">{{ r.status }}</span>{% if r.file_count %} <span class="sub small">{{ r.file_count }} files</span>{% endif %}</td>
-  <td class="actions"><form method="post" action="{{ settings.url_base }}/releases/{{ r.id }}/toggle"><button class="mini {{ 'on' if r.monitored else 'off' }}" title="toggle monitoring">{{ '●' if r.monitored else '○' }}</button></form> <a class="mini" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}">MB ↗</a></td>
+  <td class="actions"><form method="post" action="{{ settings.url_base }}/releases/{{ r.id }}/toggle"><button class="mini {{ 'on' if r.monitored else 'off' }}" title="toggle monitoring">{{ '●' if r.monitored else '○' }}</button></form> {% if r.status != 'have' and not r.is_upcoming %}<a class="mini button" href="{{ settings.url_base }}/releases/{{ r.id }}/search">Search</a> {% endif %}<a class="mini" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}">MB ↗</a></td>
 </tr>
 {% endfor %}
 </table>
@@ -45,7 +45,7 @@
   </td>
   <td class="date">{{ r.first_release_date or '—' }}</td>
   <td><span class="badge {{ r.status }}">{{ r.status }}</span></td>
-  <td class="actions"><form method="post" action="{{ settings.url_base }}/releases/{{ r.id }}/toggle"><button class="mini {{ 'on' if r.monitored else 'off' }}" title="toggle monitoring">{{ '●' if r.monitored else '○' }}</button></form> <a class="mini" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}">MB ↗</a></td>
+  <td class="actions"><form method="post" action="{{ settings.url_base }}/releases/{{ r.id }}/toggle"><button class="mini {{ 'on' if r.monitored else 'off' }}" title="toggle monitoring">{{ '●' if r.monitored else '○' }}</button></form> {% if r.status != 'have' and not r.is_upcoming %}<a class="mini button" href="{{ settings.url_base }}/releases/{{ r.id }}/search">Search</a> {% endif %}<a class="mini" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}">MB ↗</a></td>
 </tr>
 {% endfor %}
 </table>
