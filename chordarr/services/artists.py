@@ -62,12 +62,12 @@ async def add_artist(
 def _role_for(track: mb.TrackCredit, artist_mbid: str, group: mb.ReleaseGroupInfo) -> str:
     """Guess how the artist appears on a track of a release it does not own."""
     credit = track.artist_credit.casefold()
+    if {"Compilation", "DJ-mix"} & set(group.secondary_types) or "Various Artists" in group.artist_credit:
+        return "compilation"
     if "remix" in track.title.casefold():
         return "remixer"
     if len(track.artist_mbids) > 1 and ("feat" in credit or " & " in credit or " and " in credit or " with " in credit or ", " in credit):
         return "featured"
-    if "Compilation" in group.secondary_types or "Various Artists" in group.artist_credit:
-        return "compilation"
     return "credited"
 
 
