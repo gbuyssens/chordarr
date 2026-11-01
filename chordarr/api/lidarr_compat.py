@@ -16,7 +16,7 @@ from chordarr.models import Indexer
 
 # What Prowlarr's version check reads. This is the Lidarr API level Chordarr speaks, not
 # Chordarr's own version (sent as X-Chordarr-Version).
-LIDARR_API_VERSION = "1.0.2"
+LIDARR_API_VERSION = "1.0.2.0"  # four parts: .NET parses "1.0.2" as 1.0.2.-1, below 1.0.2.0
 MASK = "********"
 
 _COMMON_FIELDS: list[dict] = [
