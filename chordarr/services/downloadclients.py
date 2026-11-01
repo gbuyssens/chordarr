@@ -150,7 +150,10 @@ class QBittorrent:
         if not self.cfg.username:
             return
         r = await self._http.post("/api/v2/auth/login", data={"username": self.cfg.username, "password": self.cfg.password})
-        if r.status_code != 200 or r.text.strip() != "Ok.":
+        # qBittorrent ≤ 5.2 answers 200 "Ok."; 5.3 answers 204 with an empty body. Anything
+        # else (200 "Fails.", 403 after too many attempts) is a failure.
+        ok = r.status_code == 204 or (r.status_code == 200 and r.text.strip() in ("Ok.", ""))
+        if not ok:
             raise ClientError(f"qBittorrent login failed ({r.status_code} {r.text.strip()[:60]})")
         self._logged_in = True
 
