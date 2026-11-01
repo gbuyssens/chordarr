@@ -1,13 +1,34 @@
-{% extends "base.html" %}{% block title %}General · Chordarr{% endblock %}
+{% extends "base.html" %}{% block title %}General Settings · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar() }}{% endblock %}
 {% block content %}
-<h1 class="page-title">General</h1>
-<div class="panel"><h3>Host</h3>
-<dl class="kv"><dt>Bind address</dt><dd><code>{{ settings.host }}</code></dd><dt>Port</dt><dd><code>{{ settings.port }}</code></dd><dt>URL base</dt><dd><code>{{ settings.url_base or '/' }}</code></dd></dl></div>
-<div class="panel"><h3>Security</h3>
-<dl class="kv"><dt>API key</dt><dd><code class="secret" onclick="this.classList.toggle('show')">{{ api_key }}</code> <span class="muted small">click to reveal · header <code>X-Api-Key</code></span></dd>
-<dt>UI login</dt><dd>{{ 'password' if settings.ui_password else 'none (reverse proxy / SSO expected)' }}</dd>
-<dt>Local API access</dt><dd>{{ 'allowed without key from private addresses' if settings.auth_disabled_for_local else 'key required everywhere' }}</dd></dl></div>
-<div class="panel"><h3>Updates &amp; intervals</h3>
-<dl class="kv"><dt>Refresh artists</dt><dd>every {{ '%g'|format(settings.refresh_interval_hours) }} h</dd><dt>Scan library</dt><dd>every {{ '%g'|format(settings.scan_interval_hours) }} h</dd><dt>Recommendations</dt><dd>every {{ '%g'|format(settings.recommendations_interval_hours) }} h</dd><dt>MusicBrainz</dt><dd><code>{{ settings.musicbrainz_url }}</code>, 1 request/s</dd></dl>
-<p class="muted small">Settings are read from <code>CHORDARR_*</code> environment variables or <code>chordarr.toml</code> in the data directory; restart to apply.</p></div>
+<form id="settingsForm" method="post" action="{{ base }}/settings/general">
+{% call f.fieldset('Host') %}
+  {% call f.group('Bind Address', help='Valid IP address, localhost or \'*\' for all interfaces', warning='Requires restart to take effect', advanced=True) %}{{ f.text('bind_address', settings.host, readonly=True) }}{% endcall %}
+  {% call f.group('Port Number', warning='Requires restart to take effect') %}{{ f.text('port', settings.port, readonly=True) }}{% endcall %}
+  {% call f.group('URL Base', help='For reverse proxy support, default is empty', warning='Requires restart to take effect') %}{{ f.text('url_base', settings.url_base, readonly=True) }}{% endcall %}
+  {% call f.group('Instance Name', help='Instance name in tab and for Syslog app name', advanced=True) %}{{ f.text('instance_name', 'Chordarr', readonly=True) }}{% endcall %}
+  <div class="help">Host settings come from <code>CHORDARR_*</code> environment variables or <code>chordarr.toml</code> in <code>{{ settings.data_dir }}</code>.</div>
+{% endcall %}
+{% call f.fieldset('Security') %}
+  {% call f.group('Authentication', help='External: a reverse proxy with SSO in front (Authentik, Authelia, Cloudflare Access). Forms: the UI password set with CHORDARR_UI_PASSWORD.') %}{{ f.text('auth', 'Forms (password)' if settings.ui_password else 'External (reverse proxy)', readonly=True) }}{% endcall %}
+  {% call f.group('Authentication Required', help='Change which requests authentication is required for. Do not change unless you understand the risks.') %}{{ f.text('auth_required', 'Disabled for Local Addresses' if settings.auth_disabled_for_local else 'Enabled', readonly=True) }}{% endcall %}
+  {% call f.group('API Key', help='Header X-Api-Key or query parameter apikey. Stored in ' ~ settings.data_dir ~ '/api_key; delete the file and restart to regenerate.') %}<input type="text" name="api_key" value="{{ api_key }}" readonly onfocus="this.select()">{% endcall %}
+{% endcall %}
+{% call f.fieldset('Logging') %}
+  {% call f.group('Log Level', help='Debug logging should only be enabled temporarily', size='medium') %}{{ f.select('log_level', [('info','Info'),('debug','Debug'),('warning','Warning'),('error','Error')], settings.log_level) }}{% endcall %}
+{% endcall %}
+{% call f.fieldset('Updates') %}
+  {% call f.group('Mechanism', help='Native install: git pull and deploy/install.sh. Docker: pull the new image. Chordarr only checks GitHub releases (System → Updates).', size='medium') %}{{ f.text('update_mechanism', 'External (package manager / Docker)', readonly=True) }}{% endcall %}
+{% endcall %}
+{% call f.fieldset('Tasks') %}
+  {% call f.group('Refresh Artists', help='How often each artist is re-checked on MusicBrainz', unit='hours', advanced=True) %}{{ f.number('refresh_interval_hours', settings.refresh_interval_hours, 1, step='0.5') }}{% endcall %}
+  {% call f.group('Scan Library', help='Library scan period', unit='hours', advanced=True) %}{{ f.number('scan_interval_hours', settings.scan_interval_hours, 1, step='0.5') }}{% endcall %}
+  {% call f.group('Recommendations', help='Discover rebuild period', unit='hours', advanced=True) %}{{ f.number('recommendations_interval_hours', settings.recommendations_interval_hours, 1, step='0.5') }}{% endcall %}
+{% endcall %}
+{% call f.fieldset('Backups') %}
+  {% call f.group('Folder', help='Relative paths will be under Chordarr\'s AppData directory', advanced=True) %}{{ f.text('backup_folder', (settings.data_dir ~ '/Backups')|string, readonly=True) }}{% endcall %}
+  {% call f.group('Interval', help='Interval between automatic backups. 0 disables them.', unit='days') %}{{ f.number('backup_interval_days', settings.backup_interval_days|int, 0, 30) }}{% endcall %}
+  {% call f.group('Retention', help='Automatic backups older than the retention period will be cleaned up automatically', advanced=True) %}{{ f.text('backup_retention', '7 scheduled · 20 manual', readonly=True) }}{% endcall %}
+{% endcall %}
+</form>
 {% endblock %}

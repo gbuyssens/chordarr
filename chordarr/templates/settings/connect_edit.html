@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% block title %}{{ 'Add' if is_new else 'Edit' }} Connection · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(form='providerForm') }}{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ 'Add Connection' if is_new else 'Edit Connection' }} - {{ ctype.label }}</h1>
+<form id="providerForm" method="post" action="{{ base }}/settings/connect/save">
+{% if n %}
+<input type="hidden" name="kind" value="notifier"><input type="hidden" name="type" value="{{ n.type }}">{% if not is_new %}<input type="hidden" name="id" value="{{ n.id }}">{% endif %}
+{% call f.group('Name') %}{{ f.text('name', n.name) }}{% endcall %}
+{% call f.group('Enable', size='medium') %}{{ f.check('enabled', n.enabled) }}{% endcall %}
+{% call f.fieldset('Notification Triggers', small=True) %}
+<div class="help" style="margin:-10px 0 14px">None checked means every event.</div>
+{% for key, label in EVENT_TYPES.items() %}
+{% call f.group(label, size='medium') %}{{ f.check('ev_' ~ key, key in (n.events or [])) }}{% endcall %}
+{% endfor %}
+{% endcall %}
+{% for field in ctype.fields %}
+{% set secret = 'token' in field or 'secret' in field or 'key' in field %}
+{% call f.group(field.replace('_', ' ')|capitalize, help=('Bearer secret sent in the Authorization header' if field == 'secret' else '')) %}{{ f.text('cfg_' ~ field, ('********' if secret and n.config.get(field) else n.config.get(field, '')), type=('password' if secret else 'text')) }}{% endcall %}
+{% endfor %}
+{% if n.type == 'webhook' %}<div class="help">JSON POST with <code>event</code>, <code>title</code>, <code>body</code>, <code>artist</code>, <code>release</code>; header <code>X-Chordarr-Event</code>. Built for n8n and Home Assistant.</div>{% endif %}
+{% set del = base ~ '/settings/connect/notifier/' ~ n.id ~ '/delete' %}{% set test = base ~ '/settings/connect/notifier/' ~ n.id ~ '/test' %}{% set nm = n.name %}
+{% else %}
+<input type="hidden" name="kind" value="mediaserver"><input type="hidden" name="type" value="{{ m.type }}">{% if not is_new %}<input type="hidden" name="id" value="{{ m.id }}">{% endif %}
+{% call f.group('Name') %}{{ f.text('name', m.name) }}{% endcall %}
+{% call f.group('Enable', size='medium') %}{{ f.check('enabled', m.enabled) }}{% endcall %}
+{% call f.group('On Release Import', size='medium') %}{{ f.check('on_import', True, 'Scan the imported folder', disabled=True) }}{% endcall %}
+{% call f.group('URL', help='Address of the server, e.g. http://jellyfin:8096') %}{{ f.text('url', m.url, 'http://jellyfin:8096') }}{% endcall %}
+{% call f.group('API Key' if m.type == 'jellyfin' else 'Auth Token') %}{{ f.text('api_key', '********' if m.api_key else '', type='password') }}{% endcall %}
+{% if m.type == 'plex' %}{% call f.group('Library Section', help='Plex music section id. Empty: found from the folder path', advanced=True) %}{{ f.text('section', m.section) }}{% endcall %}{% endif %}
+{% call f.group('Map Paths From', help='Chordarr path, modifies the folder sent to the server when the server sees the library under another path', advanced=True) %}{{ f.text('local_path', m.local_path, settings.root_folder or '/music') }}{% endcall %}
+{% call f.group('Map Paths To', help='Server path', advanced=True) %}{{ f.text('remote_path', m.remote_path, '/media/music') }}{% endcall %}
+{% set del = base ~ '/settings/connect/mediaserver/' ~ m.id ~ '/delete' %}{% set test = base ~ '/settings/connect/mediaserver/' ~ m.id ~ '/test' %}{% set nm = m.name %}
+{% endif %}
+<div class="form-actions">
+  {% if not is_new %}<button class="btn danger" type="submit" formaction="{{ del }}" formnovalidate onclick="return confirm('Are you sure you want to delete the connection \'{{ nm|e }}\'?')">Delete</button>{% endif %}
+  <span class="spacer"></span>
+  {% if not is_new %}<button class="btn" type="submit" formaction="{{ test }}" formnovalidate><svg class="i"><use href="#i-test"/></svg> Test</button>{% endif %}
+  <a class="btn" href="{{ base }}/settings/connect">Cancel</a>
+  <button class="btn primary" type="submit">Save</button>
+</div>
+</form>
+{% endblock %}

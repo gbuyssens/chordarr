@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% block title %}Profiles · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar() }}{% endblock %}
+{% block content %}
+<form id="settingsForm" method="post" action="{{ base }}/settings/profiles">
+{% call f.fieldset('Quality Profiles') %}
+<div class="cards">
+{% for key, label in QUALITY_PROFILES.items() %}
+<label class="card clickable" style="cursor:pointer">
+  <div class="name">{{ key|capitalize }}</div>
+  <div class="muted small">{{ label }}</div>
+  <div class="enabled"><input type="radio" name="quality_profile" value="{{ key }}" {% if prefs.quality_profile == key %}checked{% endif %}> <span class="label {{ 'success' if prefs.quality_profile == key else 'disabled outline' }}">{{ 'In use' if prefs.quality_profile == key else 'Select' }}</span></div>
+</label>
+{% endfor %}
+</div>
+<div class="help">A candidate must meet the profile; among accepted ones the best quality wins, then seeders, then indexer priority. Upgrades of releases already on disk are not performed yet.</div>
+{% endcall %}
+{% call f.fieldset('Metadata Profiles') %}
+<div class="cards">
+<a class="card clickable" href="{{ base }}/artists">
+  <div class="name">Standard</div>
+  <div class="muted small">Primary types: Album, EP, Single, Broadcast, Other · Secondary: Studio · Status: Official</div>
+  <div class="enabled"><span class="label success">Default</span></div>
+</a>
+</div>
+<div class="help">Which release types start monitored is chosen per artist (Albums / EPs / Singles / Features) on the artist page and when adding one.</div>
+{% endcall %}
+</form>
+{% endblock %}

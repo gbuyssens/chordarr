@@ -8,10 +8,10 @@
 <link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
 </head>
 <body>
-{% include "_icons.html" %}
+{% include "_icons.html" %}{% import "_forms.html" as f with context %}
 {% set path = request.url.path %}
 {% macro nav(href, icon, label, exact=False) -%}
-<a class="nav-item {% if (exact and path == base ~ href) or (not exact and path.startswith(base ~ href)) %}active{% endif %}" href="{{ base }}{{ href }}"><svg class="i"><use href="#i-{{ icon }}"/></svg><span>{{ label }}</span></a>
+<a class="nav-item {% if (exact and path == base ~ href) or (not exact and path.startswith(base ~ href)) %}active{% endif %}" href="{{ base }}{{ href }}"><span class="ic"><svg class="i"><use href="#i-{{ icon }}"/></svg></span><span>{{ label }}</span></a>
 {%- endmacro %}
 {% macro sub(href, label) -%}
 <a class="nav-sub {% if path == base ~ href %}active{% endif %}" href="{{ base }}{{ href }}">{{ label }}</a>
@@ -19,7 +19,7 @@
 <input type="checkbox" id="nav-toggle" hidden>
 <header class="topbar">
   <label for="nav-toggle" class="burger"><svg class="i"><use href="#i-bars"/></svg></label>
-  <a class="brand" href="{{ base }}/artists"><span class="logo"><svg class="i"><use href="#i-music"/></svg></span>Chordarr</a>
+  <a class="brand" href="{{ base }}/artists"><span class="logo"><svg class="i"><use href="#i-music"/></svg></span><span>Chordarr</span></a>
   <form class="topsearch" method="get" action="{{ base }}/artists/add"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" placeholder="Search artists to add…" value="{{ request.query_params.get('q','') if path.endswith('/artists/add') else '' }}"></form>
   <div class="topright">
     {% if jobs.running %}<span class="spin" title="running: {{ jobs.running|join(', ') }}"><svg class="i"><use href="#i-sync"/></svg></span>{% endif %}
@@ -37,7 +37,7 @@
   <div class="group">{{ nav('/wanted', 'exclamation', 'Wanted') }}
     {% if path.startswith(base ~ '/wanted') %}<div class="subs">{{ sub('/wanted/missing', 'Missing') }}</div>{% endif %}</div>
   <div class="group">{{ nav('/settings', 'cog', 'Settings') }}
-    {% if path.startswith(base ~ '/settings') %}<div class="subs">{{ sub('/settings/mediamanagement', 'Media Management') }}{{ sub('/settings/indexers', 'Indexers') }}{{ sub('/settings/downloadclients', 'Download Clients') }}{{ sub('/settings/connect', 'Connect') }}{{ sub('/settings/general', 'General') }}</div>{% endif %}</div>
+    {% if path.startswith(base ~ '/settings') %}<div class="subs">{{ sub('/settings/mediamanagement', 'Media Management') }}{{ sub('/settings/profiles', 'Profiles') }}{{ sub('/settings/indexers', 'Indexers') }}{{ sub('/settings/downloadclients', 'Download Clients') }}{{ sub('/settings/connect', 'Connect') }}{{ sub('/settings/general', 'General') }}</div>{% endif %}</div>
   <div class="group">{{ nav('/system', 'laptop', 'System') }}
     {% if path.startswith(base ~ '/system') %}<div class="subs">{{ sub('/system/status', 'Status') }}{{ sub('/system/tasks', 'Tasks') }}{{ sub('/system/backup', 'Backup') }}{{ sub('/system/updates', 'Updates') }}</div>{% endif %}</div>
   <div class="sidebar-foot">v{{ version }}{% if settings.ui_password %} · <a href="{{ base }}/logout">Log out</a>{% endif %}</div>

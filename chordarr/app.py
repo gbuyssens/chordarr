@@ -29,6 +29,11 @@ HERE = Path(__file__).parent
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     await init_db()
+    from chordarr.db import session_scope
+    from chordarr.services.prefs import load_overrides
+
+    async with session_scope() as session:
+        await load_overrides(session)
     log.info("Chordarr %s · data in %s · root folder %s", __version__, settings.data_dir, settings.root_folder)
     task = asyncio.create_task(scheduler.loop())
     try:

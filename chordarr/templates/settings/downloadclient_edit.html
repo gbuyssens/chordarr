@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block title %}{{ 'Add' if is_new else 'Edit' }} Download Client · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(form='providerForm') }}{% endblock %}
+{% block content %}
+{% set label = CLIENT_TYPES[c.implementation].label if c.implementation in CLIENT_TYPES else c.implementation %}
+<h1 class="page-title">{{ 'Add Download Client' if is_new else 'Edit Download Client' }} - {{ label }}</h1>
+<form id="providerForm" method="post" action="{{ base }}/settings/downloadclients/save">
+{% if not is_new %}<input type="hidden" name="id" value="{{ c.id }}">{% endif %}
+<input type="hidden" name="implementation" value="{{ c.implementation }}">
+{% call f.group('Name') %}{{ f.text('name', c.name) }}{% endcall %}
+{% call f.group('Enable', size='medium') %}{{ f.check('enabled', c.enabled) }}{% endcall %}
+{% call f.group('Host') %}{{ f.text('host', parts.host, 'localhost') }}{% endcall %}
+{% call f.group('Port') %}{{ f.number('port', parts.port, 1, 65535) }}{% endcall %}
+{% call f.group('Use SSL', help='Use secure connection when connecting to ' ~ label, size='medium') %}{{ f.check('use_ssl', parts.useSsl) }}{% endcall %}
+{% call f.group('URL Base', help='Adds a prefix to the ' ~ label ~ ' url, such as http://[host]:[port]/[urlBase]', advanced=True) %}{{ f.text('url_base', parts.urlBase) }}{% endcall %}
+{% if c.implementation == 'qbittorrent' %}
+{% call f.group('Username') %}{{ f.text('username', c.username) }}{% endcall %}
+{% call f.group('Password') %}{{ f.text('password', '********' if c.password else '', type='password') }}{% endcall %}
+{% else %}
+{% call f.group('API Key') %}{{ f.text('api_key', '********' if c.api_key else '', type='password') }}{% endcall %}
+{% endif %}
+{% call f.group('Category', help='Adding a category specific to Chordarr avoids conflicts with unrelated non-Chordarr downloads. Using a category is optional, but strongly recommended.') %}{{ f.text('category', c.category) }}{% endcall %}
+{% call f.group('Client Priority', help='Download Client Priority from 1 (Highest) to 50 (Lowest). Default is 1. Round-Robin is used for clients with the same priority.', advanced=True) %}{{ f.number('priority', c.priority, 1, 50) }}{% endcall %}
+{% call f.group('Remove Completed', help='Remove imported downloads from download client history (usenet downloads are always removed)', size='medium', advanced=True) %}{{ f.check('remove_completed', c.remove_completed) }}{% endcall %}
+{% call f.group('Remote Path', help='Root path to the directory that the Download Client accesses, when it runs on another machine or container', advanced=True) %}{{ f.text('remote_path', c.remote_path, '/downloads') }}{% endcall %}
+{% call f.group('Local Path', help='Path that Chordarr should use to access the remote path locally', advanced=True) %}{{ f.text('local_path', c.local_path, '/mnt/downloads') }}{% endcall %}
+<div class="form-actions">
+  {% if not is_new %}<button class="btn danger" type="submit" formaction="{{ base }}/settings/downloadclients/{{ c.id }}/delete" formnovalidate onclick="return confirm('Are you sure you want to delete the download client \'{{ c.name|e }}\'?')">Delete</button>{% endif %}
+  <span class="spacer"></span>
+  {% if not is_new %}<button class="btn" type="submit" formaction="{{ base }}/settings/downloadclients/{{ c.id }}/test" formnovalidate><svg class="i"><use href="#i-test"/></svg> Test</button>{% endif %}
+  <a class="btn" href="{{ base }}/settings/downloadclients">Cancel</a>
+  <button class="btn primary" type="submit">Save</button>
+</div>
+</form>
+{% endblock %}

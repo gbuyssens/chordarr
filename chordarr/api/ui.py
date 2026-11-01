@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chordarr import __version__
+from chordarr.api import lidarr_compat
 from chordarr.api.auth import COOKIE, session_token, ui_authenticated
 from chordarr.config import settings
 from chordarr.db import get_session
@@ -51,7 +52,7 @@ from chordarr.services import (
 from chordarr.services import artists as artist_service
 from chordarr.services.events import EVENT_TYPES
 from chordarr.services.indexers import human_size
-from chordarr.services.prefs import QUALITY_PROFILES, get_prefs, set_prefs
+from chordarr.services.prefs import QUALITY_PROFILES, get_prefs, save_overrides, set_prefs
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
@@ -453,110 +454,6 @@ async def missing_page(request: Request, kind: str = "", session: AsyncSession =
 # --- settings ---------------------------------------------------------------------------
 
 
-@protected.get("/settings")
-async def settings_root():
-    return RedirectResponse(url("/settings/mediamanagement"), status_code=302)
-
-
-@protected.get("/settings/mediamanagement", response_class=HTMLResponse)
-async def settings_media(request: Request):
-    import shutil
-
-    root = settings.root_folder
-    free = shutil.disk_usage(root).free if root and root.is_dir() else None
-    return render(request, "settings/mediamanagement.html", root=root, free=free)
-
-
-@protected.get("/settings/connect", response_class=HTMLResponse)
-async def settings_connect(request: Request, session: AsyncSession = Depends(get_session)):
-    notifiers = (await session.scalars(select(Notifier).order_by(Notifier.id))).all()
-    servers = (await session.scalars(select(MediaServer).order_by(MediaServer.id))).all()
-    return render(request, "settings/connect.html", notifiers=notifiers, mediaservers=servers)
-
-
-@protected.post("/settings/connect/mediaservers")
-async def mediaserver_create(request: Request, session: AsyncSession = Depends(get_session)):
-    form = await request.form()
-    kind = form.get("type")
-    if kind not in mediaservers.MEDIA_SERVER_TYPES:
-        raise HTTPException(400)
-    m = MediaServer(
-        name=form.get("name") or mediaservers.MEDIA_SERVER_TYPES[kind]["label"],
-        type=kind,
-        url=str(form.get("url", "")).strip(),
-        api_key=str(form.get("api_key", "")),
-        section=str(form.get("section", "")).strip(),
-        local_path=str(form.get("local_path", "")).strip(),
-        remote_path=str(form.get("remote_path", "")).strip(),
-    )
-    if not m.url:
-        return RedirectResponse(url("/settings/connect?notice=Media+server+URL+is+required"), status_code=303)
-    session.add(m)
-    await session.commit()
-    return RedirectResponse(url("/settings/connect?notice=Media+server+added"), status_code=303)
-
-
-@protected.post("/settings/connect/mediaservers/{server_id}/{action}")
-async def mediaserver_action(server_id: int, action: str, session: AsyncSession = Depends(get_session)):
-    m = await session.get(MediaServer, server_id)
-    if not m:
-        raise HTTPException(404)
-    notice = ""
-    if action == "delete":
-        await session.delete(m)
-        notice = "Media+server+removed"
-    elif action == "toggle":
-        m.enabled = not m.enabled
-    elif action == "test":
-        try:
-            notice = (await mediaservers.test(m)).replace(" ", "+")
-            m.last_error = None
-        except Exception as exc:
-            m.last_error = str(exc)[:300]
-            notice = f"Test+failed:+{str(exc)[:80]}"
-    await session.commit()
-    return RedirectResponse(url(f"/settings/connect?notice={notice}"), status_code=303)
-
-
-@protected.post("/settings/connect")
-async def notifier_create(request: Request, session: AsyncSession = Depends(get_session)):
-    form = await request.form()
-    ntype = form.get("type")
-    if ntype not in notify.NOTIFIER_TYPES:
-        raise HTTPException(400)
-    cfg = {f: form.get(f"cfg_{f}", "") for f in notify.NOTIFIER_TYPES[ntype]["fields"]}
-    events = [e for e in EVENT_TYPES if form.get(f"ev_{e}")]
-    session.add(Notifier(name=form.get("name") or notify.NOTIFIER_TYPES[ntype]["label"], type=ntype, config=cfg, events=events))
-    await session.commit()
-    return RedirectResponse(url("/settings/connect?notice=Connection+added"), status_code=303)
-
-
-@protected.post("/settings/connect/{notifier_id}/{action}")
-async def notifier_action(notifier_id: int, action: str, session: AsyncSession = Depends(get_session)):
-    n = await session.get(Notifier, notifier_id)
-    if not n:
-        raise HTTPException(404)
-    notice = ""
-    if action == "delete":
-        await session.delete(n)
-        notice = "Connection+removed"
-    elif action == "toggle":
-        n.enabled = not n.enabled
-    elif action == "test":
-        try:
-            await notify.test(n)
-            notice = "Test+sent"
-        except Exception as exc:
-            notice = f"Test+failed:+{str(exc)[:80]}"
-    await session.commit()
-    return RedirectResponse(url(f"/settings/connect?notice={notice}"), status_code=303)
-
-
-@protected.get("/settings/general", response_class=HTMLResponse)
-async def settings_general(request: Request):
-    return render(request, "settings/general.html", api_key=settings.api_key)
-
-
 # --- system -----------------------------------------------------------------------------
 
 
@@ -616,128 +513,6 @@ async def run_task(name: str):
 
 
 # --- settings: indexers, download clients -----------------------------------------------
-
-
-@protected.get("/settings/indexers", response_class=HTMLResponse)
-async def settings_indexers(request: Request, session: AsyncSession = Depends(get_session)):
-    rows = (await session.scalars(select(Indexer).order_by(Indexer.priority, Indexer.id))).all()
-    return render(request, "settings/indexers.html", indexers=rows, prefs=await get_prefs(session))
-
-
-@protected.post("/settings/indexers/options")
-async def indexer_options(auto_grab: bool = Form(False), quality_profile: str = Form("lossless"), session: AsyncSession = Depends(get_session)):
-    if quality_profile not in QUALITY_PROFILES:
-        raise HTTPException(400)
-    await set_prefs(session, auto_grab=auto_grab, quality_profile=quality_profile)
-    await session.commit()
-    if auto_grab:
-        scheduler.wake()
-    return RedirectResponse(url("/settings/indexers?notice=Options+saved#options"), status_code=303)
-
-
-@protected.post("/settings/indexers")
-async def indexer_create(request: Request, session: AsyncSession = Depends(get_session)):
-    form = await request.form()
-    try:
-        cats = [int(c) for c in str(form.get("categories", "3000")).replace(";", ",").split(",") if c.strip()]
-        i = Indexer(
-            name=form.get("name") or "Indexer",
-            implementation="Newznab" if form.get("implementation") == "Newznab" else "Torznab",
-            base_url=str(form.get("base_url", "")).strip(),
-            api_path=str(form.get("api_path") or "/api"),
-            api_key=str(form.get("api_key", "")),
-            categories=cats or [3000],
-            priority=int(form.get("priority") or 25),
-            minimum_seeders=int(form.get("minimum_seeders") or 0),
-        )
-    except ValueError as exc:
-        return RedirectResponse(url(f"/settings/indexers?notice=Invalid+indexer:+{str(exc)[:80]}"), status_code=303)
-    if not i.base_url:
-        return RedirectResponse(url("/settings/indexers?notice=Indexer+URL+is+required"), status_code=303)
-    try:
-        i.capabilities = await indexers.caps(i)
-    except Exception as exc:
-        i.last_error = str(exc)[:300]
-    session.add(i)
-    await session.commit()
-    return RedirectResponse(url("/settings/indexers?notice=" + ("Indexer+added" if not i.last_error else "Indexer+added,+but+unreachable")), status_code=303)
-
-
-@protected.post("/settings/indexers/{indexer_id}/{action}")
-async def indexer_action(indexer_id: int, action: str, session: AsyncSession = Depends(get_session)):
-    i = await session.get(Indexer, indexer_id)
-    if not i:
-        raise HTTPException(404)
-    notice = ""
-    if action == "delete":
-        await session.delete(i)
-        notice = "Indexer+removed"
-    elif action == "toggle":
-        on = not (i.enable_rss or i.enable_automatic_search or i.enable_interactive_search)
-        i.enable_rss = i.enable_automatic_search = i.enable_interactive_search = on
-    elif action == "test":
-        try:
-            i.capabilities = await indexers.test(i)
-            i.last_error = None
-            notice = f"{i.name}:+OK,+music+search+params+{','.join(i.capabilities.get('music_params') or ['none'])}"
-        except Exception as exc:
-            i.last_error = str(exc)[:300]
-            notice = f"Test+failed:+{str(exc)[:80]}"
-    await session.commit()
-    return RedirectResponse(url(f"/settings/indexers?notice={notice}"), status_code=303)
-
-
-@protected.get("/settings/downloadclients", response_class=HTMLResponse)
-async def settings_downloadclients(request: Request, session: AsyncSession = Depends(get_session)):
-    rows = (await session.scalars(select(DownloadClient).order_by(DownloadClient.id))).all()
-    return render(request, "settings/downloadclients.html", clients=rows)
-
-
-@protected.post("/settings/downloadclients")
-async def client_create(request: Request, session: AsyncSession = Depends(get_session)):
-    form = await request.form()
-    impl = form.get("implementation")
-    if impl not in downloadclients.CLIENT_TYPES:
-        raise HTTPException(400)
-    c = DownloadClient(
-        name=form.get("name") or downloadclients.CLIENT_TYPES[impl]["label"],
-        implementation=impl,
-        url=str(form.get("url", "")).strip(),
-        username=str(form.get("username", "")),
-        password=str(form.get("password", "")),
-        api_key=str(form.get("api_key", "")),
-        category=str(form.get("category") or "chordarr"),
-        remote_path=str(form.get("remote_path", "")).strip(),
-        local_path=str(form.get("local_path", "")).strip(),
-        remove_completed=bool(form.get("remove_completed")),
-    )
-    if not c.url:
-        return RedirectResponse(url("/settings/downloadclients?notice=Client+URL+is+required"), status_code=303)
-    session.add(c)
-    await session.commit()
-    return RedirectResponse(url("/settings/downloadclients?notice=Download+client+added"), status_code=303)
-
-
-@protected.post("/settings/downloadclients/{client_id}/{action}")
-async def client_action(client_id: int, action: str, session: AsyncSession = Depends(get_session)):
-    c = await session.get(DownloadClient, client_id)
-    if not c:
-        raise HTTPException(404)
-    notice = ""
-    if action == "delete":
-        await session.delete(c)
-        notice = "Download+client+removed"
-    elif action == "toggle":
-        c.enabled = not c.enabled
-    elif action == "test":
-        try:
-            notice = (await downloadclients.test(c)).replace(" ", "+") + "+reachable"
-            c.last_error = None
-        except Exception as exc:
-            c.last_error = str(exc)[:300]
-            notice = f"Test+failed:+{str(exc)[:80]}"
-    await session.commit()
-    return RedirectResponse(url(f"/settings/downloadclients?notice={notice}"), status_code=303)
 
 
 # --- search and grab --------------------------------------------------------------------
@@ -825,6 +600,391 @@ async def system_updates_check():
 
     await updates.check(force=True)
     return RedirectResponse(url("/system/updates"), status_code=303)
+
+
+# --- settings (laid out like Lidarr: index, FieldSets, provider cards, edit pages) ------------
+
+
+def _form_bool(form, name: str) -> bool:
+    return str(form.get(name, "")).lower() in ("1", "true", "on", "yes")
+
+
+@protected.get("/settings", response_class=HTMLResponse)
+async def settings_index(request: Request):
+    return render(request, "settings/index.html")
+
+
+@protected.get("/settings/mediamanagement", response_class=HTMLResponse)
+async def settings_media(request: Request, session: AsyncSession = Depends(get_session)):
+    import shutil
+
+    root = settings.root_folder
+    free = shutil.disk_usage(root).free if root and root.is_dir() else None
+    known = {a.path for a in (await session.scalars(select(Artist))).all() if a.path}
+    unmapped = len(library.unknown_artist_folders(known))
+    return render(request, "settings/mediamanagement.html", root=root, free=free, unmapped=unmapped)
+
+
+@protected.post("/settings/mediamanagement")
+async def settings_media_save(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    mode = str(form.get("import_mode") or "auto")
+    await save_overrides(
+        session,
+        artist_folder_format=str(form.get("artist_folder_format") or "{artist}"),
+        album_folder_format=str(form.get("album_folder_format") or "{album} ({year})"),
+        track_format=str(form.get("track_format") or "{nn} - {title}"),
+        import_mode=mode if mode in ("auto", "hardlink", "copy", "move") else "auto",
+    )
+    await session.commit()
+    return RedirectResponse(url("/settings/mediamanagement?notice=Settings+saved"), status_code=303)
+
+
+@protected.get("/settings/profiles", response_class=HTMLResponse)
+async def settings_profiles(request: Request, session: AsyncSession = Depends(get_session)):
+    return render(request, "settings/profiles.html", prefs=await get_prefs(session), QUALITY_PROFILES=QUALITY_PROFILES)
+
+
+@protected.post("/settings/profiles")
+async def settings_profiles_save(quality_profile: str = Form("lossless"), session: AsyncSession = Depends(get_session)):
+    if quality_profile not in QUALITY_PROFILES:
+        raise HTTPException(400)
+    await set_prefs(session, quality_profile=quality_profile)
+    await session.commit()
+    return RedirectResponse(url("/settings/profiles?notice=Profile+saved"), status_code=303)
+
+
+# indexers
+
+
+@protected.get("/settings/indexers", response_class=HTMLResponse)
+async def settings_indexers(request: Request, session: AsyncSession = Depends(get_session)):
+    rows = (await session.scalars(select(Indexer).order_by(Indexer.priority, Indexer.id))).all()
+    return render(request, "settings/indexers.html", indexers=rows, prefs=await get_prefs(session))
+
+
+@protected.post("/settings/indexers/options")
+async def indexer_options(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    await set_prefs(session, auto_grab=_form_bool(form, "auto_grab"))
+    await save_overrides(session, rss_interval_minutes=form.get("rss_interval_minutes") or 30, search_interval_hours=form.get("search_interval_hours") or 6)
+    await session.commit()
+    scheduler.wake()
+    return RedirectResponse(url("/settings/indexers?notice=Settings+saved"), status_code=303)
+
+
+@protected.get("/settings/indexers/add", response_class=HTMLResponse)
+async def indexer_add(request: Request):
+    presets = [
+        ("Torznab", "Torznab", "Torrent indexer speaking the Torznab API (Jackett, Prowlarr, Gazelle gateways)."),
+        ("Newznab", "Newznab", "Usenet indexer speaking the Newznab API."),
+    ]
+    return render(request, "settings/provider_add.html", kind="indexer", title="Add Indexer", presets=presets, new_url=url("/settings/indexers/new"), hint="The easy way: add Chordarr to Prowlarr as a Lidarr application. Prowlarr pushes its indexers here and keeps them in sync.")
+
+
+@protected.get("/settings/indexers/new", response_class=HTMLResponse)
+async def indexer_new(request: Request, implementation: str = "Torznab"):
+    i = Indexer(name="", implementation="Newznab" if implementation == "Newznab" else "Torznab", base_url="", api_path="/api", api_key="", categories=[3000, 3010, 3040], priority=25, minimum_seeders=1)
+    return render(request, "settings/indexer_edit.html", i=i, is_new=True)
+
+
+@protected.get("/settings/indexers/{indexer_id}", response_class=HTMLResponse)
+async def indexer_edit(request: Request, indexer_id: int, session: AsyncSession = Depends(get_session)):
+    i = await session.get(Indexer, indexer_id)
+    if not i:
+        raise HTTPException(404)
+    return render(request, "settings/indexer_edit.html", i=i, is_new=False)
+
+
+@protected.post("/settings/indexers/save")
+async def indexer_save(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    iid = form.get("id")
+    i = await session.get(Indexer, int(iid)) if iid else Indexer(name="", base_url="")
+    if i is None:
+        raise HTTPException(404)
+    try:
+        cats = [int(c) for c in str(form.get("categories", "3000")).replace(";", ",").split(",") if c.strip()]
+        i.name = str(form.get("name") or i.name or "Indexer")
+        i.implementation = "Newznab" if form.get("implementation") == "Newznab" else "Torznab"
+        i.enable_rss = _form_bool(form, "enable_rss")
+        i.enable_automatic_search = _form_bool(form, "enable_automatic_search")
+        i.enable_interactive_search = _form_bool(form, "enable_interactive_search")
+        i.base_url = str(form.get("base_url", "")).strip()
+        i.api_path = str(form.get("api_path") or "/api")
+        if form.get("api_key") not in (None, "", lidarr_compat.MASK):
+            i.api_key = str(form.get("api_key"))
+        i.categories = cats or [3000]
+        i.priority = int(form.get("priority") or 25)
+        i.minimum_seeders = int(form.get("minimum_seeders") or 0)
+        i.seed_ratio = float(form.get("seed_ratio")) if form.get("seed_ratio") else None
+        i.seed_time = int(form.get("seed_time")) if form.get("seed_time") else None
+        i.early_release_limit = int(form.get("early_release_limit")) if form.get("early_release_limit") else None
+        i.additional_parameters = str(form.get("additional_parameters") or "")
+        dc = form.get("download_client_id")
+        i.download_client_id = int(dc) if dc else None
+    except ValueError as exc:
+        return RedirectResponse(url(f"/settings/indexers?notice=Invalid+value:+{str(exc)[:80]}"), status_code=303)
+    if not i.base_url:
+        return RedirectResponse(url("/settings/indexers?notice=URL+is+required"), status_code=303)
+    try:
+        i.capabilities = await indexers.caps(i)
+        i.last_error = None
+    except Exception as exc:
+        i.last_error = str(exc)[:300]
+    session.add(i)
+    await session.commit()
+    return RedirectResponse(url("/settings/indexers?notice=" + ("Indexer+saved" if not i.last_error else "Indexer+saved,+but+unreachable")), status_code=303)
+
+
+@protected.post("/settings/indexers/{indexer_id}/{action}")
+async def indexer_action(indexer_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    i = await session.get(Indexer, indexer_id)
+    if not i:
+        raise HTTPException(404)
+    notice, target = "", "/settings/indexers"
+    if action == "delete":
+        await session.delete(i)
+        notice = "Indexer+deleted"
+    elif action == "test":
+        target = f"/settings/indexers/{indexer_id}"
+        try:
+            i.capabilities = await indexers.test(i)
+            i.last_error = None
+            notice = f"Test+succeeded:+music+search+params+{','.join(i.capabilities.get('music_params') or ['none'])}"
+        except Exception as exc:
+            i.last_error = str(exc)[:300]
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"{target}?notice={notice}"), status_code=303)
+
+
+# download clients
+
+
+@protected.get("/settings/downloadclients", response_class=HTMLResponse)
+async def settings_downloadclients(request: Request, session: AsyncSession = Depends(get_session)):
+    rows = (await session.scalars(select(DownloadClient).order_by(DownloadClient.id))).all()
+    return render(request, "settings/downloadclients.html", clients=rows)
+
+
+@protected.post("/settings/downloadclients/options")
+async def downloadclient_options(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    await save_overrides(session, queue_poll_seconds=form.get("queue_poll_seconds") or 60, import_mode=form.get("import_mode") or "auto")
+    await session.commit()
+    return RedirectResponse(url("/settings/downloadclients?notice=Settings+saved"), status_code=303)
+
+
+@protected.get("/settings/downloadclients/add", response_class=HTMLResponse)
+async def downloadclient_add(request: Request):
+    presets = [(k, d["label"], f"{d['protocol'].capitalize()} client") for k, d in downloadclients.CLIENT_TYPES.items()]
+    return render(request, "settings/provider_add.html", kind="downloadclient", title="Add Download Client", presets=presets, new_url=url("/settings/downloadclients/new"), hint="")
+
+
+@protected.get("/settings/downloadclients/new", response_class=HTMLResponse)
+async def downloadclient_new(request: Request, implementation: str = "qbittorrent"):
+    if implementation not in downloadclients.CLIENT_TYPES:
+        raise HTTPException(404)
+    c = DownloadClient(name=downloadclients.CLIENT_TYPES[implementation]["label"], implementation=implementation, url="http://localhost:8080", category="chordarr")
+    return render(request, "settings/downloadclient_edit.html", c=c, is_new=True, parts=lidarr_compat.split_url(c.url))
+
+
+@protected.get("/settings/downloadclients/{client_id}", response_class=HTMLResponse)
+async def downloadclient_edit(request: Request, client_id: int, session: AsyncSession = Depends(get_session)):
+    c = await session.get(DownloadClient, client_id)
+    if not c:
+        raise HTTPException(404)
+    return render(request, "settings/downloadclient_edit.html", c=c, is_new=False, parts=lidarr_compat.split_url(c.url))
+
+
+@protected.post("/settings/downloadclients/save")
+async def downloadclient_save(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    cid = form.get("id")
+    c = await session.get(DownloadClient, int(cid)) if cid else DownloadClient(name="", implementation=str(form.get("implementation") or "qbittorrent"), url="")
+    if c is None:
+        raise HTTPException(404)
+    if c.implementation not in downloadclients.CLIENT_TYPES:
+        raise HTTPException(400)
+    host = str(form.get("host", "")).strip()
+    if not host:
+        return RedirectResponse(url("/settings/downloadclients?notice=Host+is+required"), status_code=303)
+    c.name = str(form.get("name") or c.name)
+    c.enabled = _form_bool(form, "enabled")
+    c.url = lidarr_compat.join_url(host, form.get("port") or 8080, _form_bool(form, "use_ssl"), str(form.get("url_base") or ""))
+    c.username = str(form.get("username") or "")
+    if form.get("password") not in (None, "", lidarr_compat.MASK):
+        c.password = str(form.get("password"))
+    if form.get("api_key") not in (None, "", lidarr_compat.MASK):
+        c.api_key = str(form.get("api_key"))
+    c.category = str(form.get("category") or "chordarr")
+    c.priority = int(form.get("priority") or 1)
+    c.remove_completed = _form_bool(form, "remove_completed")
+    c.remote_path = str(form.get("remote_path") or "").strip()
+    c.local_path = str(form.get("local_path") or "").strip()
+    session.add(c)
+    await session.commit()
+    return RedirectResponse(url("/settings/downloadclients?notice=Download+client+saved"), status_code=303)
+
+
+@protected.post("/settings/downloadclients/{client_id}/{action}")
+async def downloadclient_action(client_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    c = await session.get(DownloadClient, client_id)
+    if not c:
+        raise HTTPException(404)
+    notice, target = "", "/settings/downloadclients"
+    if action == "delete":
+        await session.delete(c)
+        notice = "Download+client+deleted"
+    elif action == "test":
+        target = f"/settings/downloadclients/{client_id}"
+        try:
+            notice = "Test+succeeded:+" + (await downloadclients.test(c)).replace(" ", "+")
+            c.last_error = None
+        except Exception as exc:
+            c.last_error = str(exc)[:300]
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"{target}?notice={notice}"), status_code=303)
+
+
+# connect (notifications and media servers)
+
+CONNECT_TYPES = {
+    **{k: {"label": v["label"], "kind": "notifier", "fields": v["fields"]} for k, v in notify.NOTIFIER_TYPES.items()},
+    **{k: {"label": v["label"], "kind": "mediaserver", "fields": v["fields"]} for k, v in mediaservers.MEDIA_SERVER_TYPES.items()},
+}
+
+
+@protected.get("/settings/connect", response_class=HTMLResponse)
+async def settings_connect(request: Request, session: AsyncSession = Depends(get_session)):
+    notifiers = (await session.scalars(select(Notifier).order_by(Notifier.id))).all()
+    servers = (await session.scalars(select(MediaServer).order_by(MediaServer.id))).all()
+    return render(request, "settings/connect.html", notifiers=notifiers, mediaservers=servers)
+
+
+@protected.get("/settings/connect/add", response_class=HTMLResponse)
+async def connect_add(request: Request):
+    presets = [(k, v["label"], "Notification" if v["kind"] == "notifier" else "Media server: library scan after each import") for k, v in CONNECT_TYPES.items()]
+    return render(request, "settings/provider_add.html", kind="connect", title="Add Connection", presets=presets, new_url=url("/settings/connect/new"), hint="")
+
+
+@protected.get("/settings/connect/new", response_class=HTMLResponse)
+async def connect_new(request: Request, implementation: str = "webhook"):
+    t = CONNECT_TYPES.get(implementation)
+    if not t:
+        raise HTTPException(404)
+    if t["kind"] == "notifier":
+        n = Notifier(name=t["label"], type=implementation, config={}, events=[])
+        return render(request, "settings/connect_edit.html", n=n, m=None, is_new=True, ctype=t)
+    m = MediaServer(name=t["label"], type=implementation, url="", api_key="", local_path=str(settings.root_folder or ""), remote_path="")
+    return render(request, "settings/connect_edit.html", n=None, m=m, is_new=True, ctype=t)
+
+
+@protected.get("/settings/connect/{kind}/{item_id}", response_class=HTMLResponse)
+async def connect_edit(request: Request, kind: str, item_id: int, session: AsyncSession = Depends(get_session)):
+    if kind == "notifier":
+        n = await session.get(Notifier, item_id)
+        if not n:
+            raise HTTPException(404)
+        return render(request, "settings/connect_edit.html", n=n, m=None, is_new=False, ctype=CONNECT_TYPES.get(n.type, {"label": n.type, "fields": []}))
+    m = await session.get(MediaServer, item_id)
+    if not m:
+        raise HTTPException(404)
+    return render(request, "settings/connect_edit.html", n=None, m=m, is_new=False, ctype=CONNECT_TYPES.get(m.type, {"label": m.type, "fields": []}))
+
+
+@protected.post("/settings/connect/save")
+async def connect_save(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    kind, iid, ctype = form.get("kind"), form.get("id"), str(form.get("type") or "")
+    if kind == "notifier":
+        if ctype not in notify.NOTIFIER_TYPES:
+            raise HTTPException(400)
+        n = await session.get(Notifier, int(iid)) if iid else Notifier(name="", type=ctype, config={}, events=[])
+        if n is None:
+            raise HTTPException(404)
+        cfg = dict(n.config or {})
+        for f in notify.NOTIFIER_TYPES[ctype]["fields"]:
+            v = form.get(f"cfg_{f}")
+            if v is None or v == lidarr_compat.MASK:
+                continue
+            cfg[f] = str(v)
+        n.name = str(form.get("name") or n.name or notify.NOTIFIER_TYPES[ctype]["label"])
+        n.enabled = _form_bool(form, "enabled")
+        n.config = cfg
+        n.events = [e for e in EVENT_TYPES if form.get(f"ev_{e}")]
+        session.add(n)
+    else:
+        if ctype not in mediaservers.MEDIA_SERVER_TYPES:
+            raise HTTPException(400)
+        m = await session.get(MediaServer, int(iid)) if iid else MediaServer(name="", type=ctype, url="")
+        if m is None:
+            raise HTTPException(404)
+        m.name = str(form.get("name") or m.name or mediaservers.MEDIA_SERVER_TYPES[ctype]["label"])
+        m.enabled = _form_bool(form, "enabled")
+        m.url = str(form.get("url") or "").strip()
+        if form.get("api_key") not in (None, "", lidarr_compat.MASK):
+            m.api_key = str(form.get("api_key"))
+        m.section = str(form.get("section") or "").strip()
+        m.local_path = str(form.get("local_path") or "").strip()
+        m.remote_path = str(form.get("remote_path") or "").strip()
+        if not m.url:
+            return RedirectResponse(url("/settings/connect?notice=URL+is+required"), status_code=303)
+        session.add(m)
+    await session.commit()
+    return RedirectResponse(url("/settings/connect?notice=Connection+saved"), status_code=303)
+
+
+@protected.post("/settings/connect/{kind}/{item_id}/{action}")
+async def connect_action(kind: str, item_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    obj = await session.get(Notifier if kind == "notifier" else MediaServer, item_id)
+    if not obj:
+        raise HTTPException(404)
+    notice, target = "", "/settings/connect"
+    if action == "delete":
+        await session.delete(obj)
+        notice = "Connection+deleted"
+    elif action == "test":
+        target = f"/settings/connect/{kind}/{item_id}"
+        try:
+            if kind == "notifier":
+                await notify.test(obj)
+                notice = "Test+notification+sent"
+            else:
+                notice = "Test+succeeded:+" + (await mediaservers.test(obj)).replace(" ", "+")
+                obj.last_error = None
+        except Exception as exc:
+            if kind != "notifier":
+                obj.last_error = str(exc)[:300]
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"{target}?notice={notice}"), status_code=303)
+
+
+# general
+
+
+@protected.get("/settings/general", response_class=HTMLResponse)
+async def settings_general(request: Request):
+    return render(request, "settings/general.html", api_key=settings.api_key)
+
+
+@protected.post("/settings/general")
+async def settings_general_save(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    level = str(form.get("log_level") or "info").lower()
+    await save_overrides(
+        session,
+        log_level=level if level in ("debug", "info", "warning", "error") else "info",
+        backup_interval_days=form.get("backup_interval_days") or 7,
+        refresh_interval_hours=form.get("refresh_interval_hours") or 12,
+        scan_interval_hours=form.get("scan_interval_hours") or 6,
+        recommendations_interval_hours=form.get("recommendations_interval_hours") or 24,
+    )
+    await session.commit()
+    return RedirectResponse(url("/settings/general?notice=Settings+saved"), status_code=303)
 
 
 router.include_router(protected)

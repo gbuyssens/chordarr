@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}{{ title }} · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(save=False) }}{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ title }}</h1>
+{% if hint %}<div class="alert info">{{ hint }} API key and URL are in <a href="{{ base }}/settings/general">General</a>.</div>{% endif %}
+<div class="preset-list">
+{% for key, label, desc in presets %}
+<div class="card">
+  <div class="name">{{ label }}</div>
+  <div class="desc">{{ desc }}</div>
+  <a class="btn primary" href="{{ new_url }}?implementation={{ key }}">Add</a>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

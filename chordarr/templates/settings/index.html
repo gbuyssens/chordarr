@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block title %}Settings · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(save=False) }}{% endblock %}
+{% block content %}
+<div class="settings-links">
+  <a class="link" href="{{ base }}/settings/mediamanagement">Media Management</a><div class="summary">Naming and file management settings</div>
+  <a class="link" href="{{ base }}/settings/profiles">Profiles</a><div class="summary">Quality and metadata profiles</div>
+  <a class="link" href="{{ base }}/settings/indexers">Indexers</a><div class="summary">Indexers and release restrictions</div>
+  <a class="link" href="{{ base }}/settings/downloadclients">Download Clients</a><div class="summary">Download clients, download handling and remote path mappings</div>
+  <a class="link" href="{{ base }}/settings/connect">Connect</a><div class="summary">Notifications, connections to media servers/players and custom scripts</div>
+  <a class="link" href="{{ base }}/settings/general">General</a><div class="summary">Port, SSL, logging, analytics and updates</div>
+</div>
+{% endblock %}

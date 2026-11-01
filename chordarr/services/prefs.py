@@ -42,3 +42,64 @@ async def set_prefs(session: AsyncSession, **values) -> Prefs:
     row.value = {**(row.value or {}), **values}
     await session.flush()
     return await get_prefs(session)
+
+
+# --- settings the UI may override (stored in the "config" row, applied onto `settings`) ---
+
+OVERRIDABLE = (
+    "artist_folder_format",
+    "album_folder_format",
+    "track_format",
+    "import_mode",
+    "refresh_interval_hours",
+    "scan_interval_hours",
+    "recommendations_interval_hours",
+    "rss_interval_minutes",
+    "search_interval_hours",
+    "queue_poll_seconds",
+    "backup_interval_days",
+    "log_level",
+)
+
+
+def _coerce(key: str, value):
+    current = getattr(settings, key)
+    if isinstance(current, bool):
+        return value in (True, 1, "1", "true", "on", "yes")
+    if isinstance(current, float):
+        return float(value)
+    if isinstance(current, int):
+        return int(value)
+    return str(value)
+
+
+async def load_overrides(session: AsyncSession) -> dict:
+    """Apply the stored overrides onto the live settings object (called at startup)."""
+    row = await session.get(Setting, "config")
+    values = dict(row.value) if row and row.value else {}
+    for key, value in values.items():
+        if key in OVERRIDABLE:
+            try:
+                setattr(settings, key, _coerce(key, value))
+            except (TypeError, ValueError):
+                pass
+    return values
+
+
+async def save_overrides(session: AsyncSession, **values) -> dict:
+    row = await session.get(Setting, "config")
+    if row is None:
+        row = Setting(key="config", value={})
+        session.add(row)
+    clean = {}
+    for key, value in values.items():
+        if key in OVERRIDABLE and value is not None:
+            clean[key] = _coerce(key, value)
+            setattr(settings, key, clean[key])
+    row.value = {**(row.value or {}), **clean}
+    await session.flush()
+    if "log_level" in clean:
+        import logging
+
+        logging.getLogger().setLevel(clean["log_level"].upper())
+    return dict(row.value)

@@ -1,0 +1,55 @@
+{# Form building blocks shaped like Lidarr's FieldSet / FormGroup / FormLabel / FormInputGroup. #}
+{% macro fieldset(legend, small=False) -%}<fieldset class="fieldset"><legend class="{{ 'small' if small }}">{{ legend }}</legend>{{ caller() }}</fieldset>{%- endmacro %}
+
+{% macro group(label, help='', warning='', advanced=False, size='', unit='', link='') -%}
+{% if not advanced or request.query_params.get('advanced') %}
+<div class="form-group {{ size }} {{ 'advanced' if advanced }}">
+  <label class="form-label">{{ label }}</label>
+  <div class="form-input">
+    <div class="row">{{ caller() }}{% if unit %}<span class="unit">{{ unit }}</span>{% endif %}</div>
+    {% if help %}<div class="help">{{ help }}{% if link %} <a href="{{ link }}" target="_blank" rel="noopener">More info</a>{% endif %}</div>{% endif %}
+    {% if warning %}<div class="help warning">{{ warning }}</div>{% endif %}
+  </div>
+</div>
+{% endif %}
+{%- endmacro %}
+
+{% macro text(name, value='', placeholder='', type='text', readonly=False, extra='') -%}
+<input type="{{ type }}" name="{{ name }}" value="{{ value if value is not none else '' }}" placeholder="{{ placeholder }}" {{ 'readonly' if readonly }} {{ extra }} {% if type == 'password' %}autocomplete="new-password"{% endif %}>
+{%- endmacro %}
+
+{% macro number(name, value='', min=None, max=None, step=None) -%}
+<input type="number" name="{{ name }}" value="{{ value if value is not none else '' }}" {% if min is not none %}min="{{ min }}"{% endif %} {% if max is not none %}max="{{ max }}"{% endif %} {% if step %}step="{{ step }}"{% endif %}>
+{%- endmacro %}
+
+{% macro select(name, options, value=None) -%}
+<select name="{{ name }}">{% for k, v in options %}<option value="{{ k }}" {% if k|string == value|string %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+{%- endmacro %}
+
+{% macro check(name, checked=False, help='', disabled=False) -%}
+<label class="check-input"><input type="checkbox" name="{{ name }}" value="1" {{ 'checked' if checked }} {{ 'disabled' if disabled }}><span class="box"><svg class="i"><use href="#i-check"/></svg></span>{% if help %}<span class="text">{{ help }}</span>{% endif %}</label>
+{%- endmacro %}
+
+{% macro settings_toolbar(save=True, form='settingsForm', extra=None) -%}
+<div class="toolbar">
+  <div class="left">
+    {% set adv = request.query_params.get('advanced') %}
+    {% set qs = request.url.query.replace('advanced=1','').strip('&') %}
+    <a class="tool {{ 'active' if adv }}" href="?{{ qs ~ '&' if qs }}{{ '' if adv else 'advanced=1' }}" title="Advanced Settings"><svg class="i"><use href="#i-cog"/></svg><span>Advanced Settings: {{ 'Shown' if adv else 'Hidden' }}</span></a>
+    {% if save %}<button class="tool" type="submit" form="{{ form }}"><svg class="i"><use href="#i-save"/></svg><span>Save Changes</span></button>{% endif %}
+    {% if extra %}<div class="tool-sep"></div>{{ extra }}{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro provider_card(href, name, labels, error='') -%}
+<a class="card clickable" href="{{ href }}">
+  <div class="name">{{ name }}</div>
+  <div class="enabled">{% for kind, text in labels %}<span class="label {{ kind }}">{{ text }}</span>{% endfor %}</div>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+</a>
+{%- endmacro %}
+
+{% macro add_card(href) -%}
+<a class="card add" href="{{ href }}"><span class="plus">+</span></a>
+{%- endmacro %}

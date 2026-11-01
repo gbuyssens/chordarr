@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block title %}{{ 'Add' if is_new else 'Edit' }} Indexer · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(form='providerForm') }}{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ 'Add Indexer' if is_new else 'Edit Indexer' }} - {{ i.implementation }}</h1>
+<form id="providerForm" method="post" action="{{ base }}/settings/indexers/save">
+{% if not is_new %}<input type="hidden" name="id" value="{{ i.id }}">{% endif %}
+<input type="hidden" name="implementation" value="{{ i.implementation }}">
+{% call f.group('Name') %}{{ f.text('name', i.name) }}{% endcall %}
+{% call f.group('Enable RSS', size='medium') %}{{ f.check('enable_rss', i.enable_rss, 'Will be used when Chordarr periodically looks for releases via RSS Sync') }}{% endcall %}
+{% call f.group('Enable Automatic Search', size='medium') %}{{ f.check('enable_automatic_search', i.enable_automatic_search, 'Will be used when automatic searches are performed via the UI or by Chordarr') }}{% endcall %}
+{% call f.group('Enable Interactive Search', size='medium') %}{{ f.check('enable_interactive_search', i.enable_interactive_search, 'Will be used when interactive search is used') }}{% endcall %}
+{% call f.group('URL') %}{{ f.text('base_url', i.base_url, 'http://prowlarr:9696/1/') }}{% endcall %}
+{% call f.group('API Path', help='Path to the api, usually /api', advanced=True) %}{{ f.text('api_path', i.api_path) }}{% endcall %}
+{% call f.group('API Key') %}{{ f.text('api_key', '********' if i.api_key else '', type='password') }}{% endcall %}
+{% call f.group('Categories', help='Newznab/Torznab category ids, comma separated. 3000 Audio, 3010 MP3, 3040 Lossless.') %}{{ f.text('categories', i.categories|join(',')) }}{% endcall %}
+{% call f.group('Early Download Limit', help='Time before release date Chordarr will download from this indexer, empty is no limit', unit='days', advanced=True) %}{{ f.number('early_release_limit', i.early_release_limit, 0) }}{% endcall %}
+{% call f.group('Additional Parameters', help='Additional Newznab parameters', advanced=True) %}{{ f.text('additional_parameters', i.additional_parameters) }}{% endcall %}
+{% if i.implementation == 'Torznab' %}
+{% call f.group('Minimum Seeders', help='Minimum number of seeders required.', advanced=True) %}{{ f.number('minimum_seeders', i.minimum_seeders, 0) }}{% endcall %}
+{% call f.group('Seed Ratio', help='The ratio a torrent should reach before stopping, empty uses the download client\'s default.') %}{{ f.number('seed_ratio', i.seed_ratio, 0, step='0.1') }}{% endcall %}
+{% call f.group('Seed Time', help='The time a torrent should be seeded before stopping, empty uses the download client\'s default', unit='minutes', advanced=True) %}{{ f.number('seed_time', i.seed_time, 0) }}{% endcall %}
+{% endif %}
+{% call f.group('Indexer Priority', help='Indexer Priority from 1 (Highest) to 50 (Lowest). Default: 25. Used when grabbing releases as a tiebreaker for otherwise equal releases, Chordarr will still use all enabled indexers for RSS Sync and Searching') %}{{ f.number('priority', i.priority, 1, 50) }}{% endcall %}
+{% call f.group('Download Client', help='Specify which download client is used for grabs from this indexer (id of the client, empty = any)', advanced=True) %}{{ f.number('download_client_id', i.download_client_id, 1) }}{% endcall %}
+{% if i.capabilities and i.capabilities.music_params %}{% call f.group('Capabilities', advanced=True) %}{{ f.text('caps', 'music search: ' ~ i.capabilities.music_params|join(', '), readonly=True) }}{% endcall %}{% endif %}
+<div class="form-actions">
+  {% if not is_new %}<button class="btn danger" type="submit" formaction="{{ base }}/settings/indexers/{{ i.id }}/delete" formnovalidate onclick="return confirm('Are you sure you want to delete the indexer \'{{ i.name|e }}\'? Prowlarr adds it again if it manages it.')">Delete</button>{% endif %}
+  <span class="spacer"></span>
+  {% if not is_new %}<button class="btn" type="submit" formaction="{{ base }}/settings/indexers/{{ i.id }}/test" formnovalidate><svg class="i"><use href="#i-test"/></svg> Test</button>{% endif %}
+  <a class="btn" href="{{ base }}/settings/indexers">Cancel</a>
+  <button class="btn primary" type="submit">Save</button>
+</div>
+</form>
+{% endblock %}

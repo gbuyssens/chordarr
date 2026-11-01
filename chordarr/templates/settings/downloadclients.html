@@ -1,35 +1,31 @@
-{% extends "base.html" %}{% block title %}Download Clients · Chordarr{% endblock %}
+{% extends "base.html" %}{% block title %}Download Client Settings · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(form='optionsForm') }}{% endblock %}
 {% block content %}
-<h1 class="page-title">Download Clients</h1>
+{% call f.fieldset('Download Clients') %}
 <div class="cards">
 {% for c in clients %}
-<div class="card {% if not c.enabled %}disabled{% endif %}">
-  <div class="card-title">{{ c.name }} <span class="label">{{ CLIENT_TYPES[c.implementation].label if c.implementation in CLIENT_TYPES else c.implementation }}</span>{% if not c.enabled %} <span class="label">disabled</span>{% endif %}</div>
-  <div class="muted small"><code>{{ c.url }}</code> · category <code>{{ c.category }}</code>{% if c.remote_path %} · <code>{{ c.remote_path }}</code> → <code>{{ c.local_path }}</code>{% endif %}{% if c.remove_completed %} · removes finished downloads{% endif %}</div>
-  {% if c.last_error %}<div class="text-danger small">{{ c.last_error }}</div>{% endif %}
-  <div class="card-actions">
-    <form method="post" action="{{ base }}/settings/downloadclients/{{ c.id }}/test"><button class="btn sm">Test</button></form>
-    <form method="post" action="{{ base }}/settings/downloadclients/{{ c.id }}/toggle"><button class="btn sm">{{ 'Disable' if c.enabled else 'Enable' }}</button></form>
-    <form method="post" action="{{ base }}/settings/downloadclients/{{ c.id }}/delete" onsubmit="return confirm('Remove this download client?')"><button class="btn sm danger"><svg class="i"><use href="#i-trash"/></svg></button></form>
-  </div>
-</div>
+{% set labels = [('success', 'Enabled')] if c.enabled else [('disabled outline', 'Disabled')] %}
+{% if c.priority > 1 %}{% set _ = labels.append(('disabled outline', 'Priority: ' ~ c.priority)) %}{% endif %}
+{% set _ = labels.append((c.protocol, c.protocol)) %}
+{{ f.provider_card(base ~ '/settings/downloadclients/' ~ c.id, c.name, labels, c.last_error) }}
 {% endfor %}
-<details class="card add"><summary><svg class="i"><use href="#i-plus"/></svg> Add download client</summary>
-<form method="post" action="{{ base }}/settings/downloadclients" class="form">
-  <label>Name<input name="name" required placeholder="qBittorrent"></label>
-  <label>Type<select name="implementation">{% for k, d in CLIENT_TYPES.items() %}<option value="{{ k }}">{{ d.label }}</option>{% endfor %}</select></label>
-  <label>URL<input name="url" required placeholder="http://localhost:8080"></label>
-  <label>Username (qBittorrent)<input name="username" autocomplete="off"></label>
-  <label>Password (qBittorrent)<input name="password" type="password" autocomplete="new-password"></label>
-  <label>API key (SABnzbd)<input name="api_key" type="password" autocomplete="new-password"></label>
-  <label>Category<input name="category" value="chordarr"></label>
-  <label>Remote path (as the client sees it, when on another machine)<input name="remote_path" placeholder="/downloads"></label>
-  <label>Local path (the same folder as Chordarr sees it)<input name="local_path" placeholder="/mnt/downloads"></label>
-  <label class="check"><input type="checkbox" name="remove_completed"> Remove torrents from the client once imported (usenet downloads are always cleaned up)</label>
-  <div><button class="btn primary">Save</button></div>
-</form>
-</details>
+{{ f.add_card(base ~ '/settings/downloadclients/add') }}
 </div>
-<div class="panel"><h3>Completed download handling</h3>
-<p class="muted small">Finished downloads are imported into the root folder: torrents are hard-linked (copied when the folders are on different file systems) so they keep seeding, usenet downloads are moved. Mode <code>{{ settings.import_mode }}</code>, change it with <code>CHORDARR_IMPORT_MODE</code> (auto, hardlink, copy, move).</p></div>
+{% endcall %}
+<form id="optionsForm" method="post" action="{{ base }}/settings/downloadclients/options">
+{% call f.fieldset('Completed Download Handling') %}
+  {% call f.group('Enable', help='Automatically import completed downloads from the download client', size='medium') %}{{ f.check('enable_completed', True, 'Automatically import completed downloads from download client', disabled=True) }}{% endcall %}
+  {% call f.group('Check Interval', help='How often the download clients are polled for finished downloads', unit='seconds', advanced=True) %}{{ f.number('queue_poll_seconds', settings.queue_poll_seconds|int, 15) }}{% endcall %}
+  {% call f.group('Import Mode', help='Auto: hard-link torrents so they keep seeding, move usenet downloads', size='medium', advanced=True) %}{{ f.select('import_mode', [('auto','Auto'),('hardlink','Hardlink / copy'),('copy','Copy'),('move','Move')], settings.import_mode) }}{% endcall %}
+{% endcall %}
+{% call f.fieldset('Remote Path Mappings') %}
+<table class="table">
+<thead><tr><th>Host</th><th>Remote Path</th><th>Local Path</th><th></th></tr></thead>
+<tbody>
+{% for c in clients if c.remote_path %}
+<tr><td>{{ c.name }}</td><td>{{ c.remote_path }}</td><td>{{ c.local_path }}</td><td class="col-actions"><a class="icon-btn" href="{{ base }}/settings/downloadclients/{{ c.id }}"><svg class="i"><use href="#i-pencil"/></svg></a></td></tr>
+{% else %}<tr><td colspan="4" class="muted">No remote path mapping. Mappings are set on each download client (Remote Path / Local Path).</td></tr>{% endfor %}
+</tbody></table>
+{% endcall %}
+</form>
 {% endblock %}
