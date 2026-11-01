@@ -1,7 +1,8 @@
 """Server-rendered UI, laid out like the other *arr applications.
 
 Sidebar: Artists (Add New, Library Import, Discover), Calendar, Activity (Queue, History),
-Wanted (Missing), Settings (Media Management, Connect, General), System (Status, Tasks).
+Wanted (Missing), Settings (Media Management, Indexers, Download Clients, Connect, General),
+System (Status, Tasks). Releases have an interactive Search page.
 Jinja2 templates, plain forms, no build step, no CDN.
 """
 
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 from collections import OrderedDict
 from datetime import date, timedelta
 from pathlib import Path
@@ -24,11 +26,34 @@ from chordarr.api.auth import COOKIE, session_token, ui_authenticated
 from chordarr.config import settings
 from chordarr.db import get_session
 from chordarr.metadata import musicbrainz as mb
-from chordarr.models import Artist, Event, Notifier, Recommendation, Release
+from chordarr.models import (
+    Artist,
+    Download,
+    DownloadClient,
+    Event,
+    Indexer,
+    MediaServer,
+    Notifier,
+    Recommendation,
+    Release,
+)
+from chordarr.services import (
+    acquisition,
+    downloadclients,
+    importer,
+    indexers,
+    library,
+    lidarr_import,
+    mediaservers,
+    notify,
+    scheduler,
+)
 from chordarr.services import artists as artist_service
-from chordarr.services import library, lidarr_import, notify, scheduler
 from chordarr.services.events import EVENT_TYPES
+from chordarr.services.indexers import human_size
+from chordarr.services.prefs import QUALITY_PROFILES, get_prefs, set_prefs
 
+log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 templates.env.globals.update(
@@ -36,6 +61,10 @@ templates.env.globals.update(
     settings=settings,
     EVENT_TYPES=EVENT_TYPES,
     NOTIFIER_TYPES=notify.NOTIFIER_TYPES,
+    CLIENT_TYPES=downloadclients.CLIENT_TYPES,
+    MEDIA_SERVER_TYPES=mediaservers.MEDIA_SERVER_TYPES,
+    QUALITY_PROFILES=QUALITY_PROFILES,
+    human_size=human_size,
     today=date.today,
     base=settings.url_base,
 )
@@ -325,8 +354,70 @@ async def activity_root():
 
 
 @protected.get("/activity/queue", response_class=HTMLResponse)
-async def queue_page(request: Request):
-    return render(request, "activity/queue.html")
+async def queue_page(request: Request, session: AsyncSession = Depends(get_session)):
+    downloads = (await session.scalars(select(Download).order_by(Download.id.desc()).limit(200))).all()
+    artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
+    wanted = (
+        await session.scalars(
+            select(Release).where(Release.status.in_(("missing", "partial")), Release.first_release_date <= date.today()).order_by(Release.first_release_date.desc()).limit(400)
+        )
+    ).all()
+    wanted.sort(key=lambda r: (artists[r.artist_id].sort_name if r.artist_id in artists else "", r.title))
+    clients = (await session.scalars(select(DownloadClient).where(DownloadClient.enabled.is_(True)))).all()
+    return render(request, "activity/queue.html", downloads=downloads, artists=artists, wanted=wanted, clients=clients, prefs=await get_prefs(session))
+
+
+@protected.post("/activity/queue/refresh")
+async def queue_refresh():
+    scheduler.trigger("queue")
+    return RedirectResponse(url("/activity/queue?notice=Checking+downloads"), status_code=303)
+
+
+@protected.post("/activity/queue/import")
+async def manual_import_ui(path: str = Form(...), release_id: str = Form(""), mode: str = Form(""), force: bool = Form(False), session: AsyncSession = Depends(get_session)):
+    src = Path(path.strip())
+    release = await session.get(Release, int(release_id)) if release_id else await importer.guess_release(session, src)
+    if release is None:
+        return RedirectResponse(url("/activity/queue?notice=Could+not+tell+which+release+this+folder+holds;+pick+one#manual"), status_code=303)
+    try:
+        result = await importer.import_folder(session, src, release, mode=mode or importer.effective_mode(None), force=force)
+    except importer.ImportError_ as exc:
+        return RedirectResponse(url(f"/activity/queue?notice=Import+failed:+{str(exc)[:140]}#manual"), status_code=303)
+    await session.commit()
+    return RedirectResponse(url(f"/artists/{release.artist_id}?notice=Imported+{len(result.files)}+files+into+{result.destination.name}"), status_code=303)
+
+
+@protected.post("/activity/queue/{download_id}/remove")
+async def queue_remove_ui(download_id: int, session: AsyncSession = Depends(get_session)):
+    d = await session.get(Download, download_id)
+    if d:
+        cfg = await session.get(DownloadClient, d.download_client_id) if d.download_client_id else None
+        if cfg and d.client_id and d.status != "imported":
+            try:
+                async with downloadclients.make_client(cfg) as dc:
+                    await dc.remove(d.client_id, delete_files=False)
+            except Exception as exc:
+                log.warning("remove %s from %s: %s", d.title, cfg.name, exc)
+        await session.delete(d)
+        await session.commit()
+    return RedirectResponse(url("/activity/queue?notice=Removed"), status_code=303)
+
+
+@protected.post("/activity/queue/{download_id}/import")
+async def queue_import_ui(download_id: int, force: bool = Form(False), session: AsyncSession = Depends(get_session)):
+    d = await session.get(Download, download_id)
+    if not d or not d.release or not d.output_path:
+        return RedirectResponse(url("/activity/queue?notice=Nothing+to+import+for+this+entry"), status_code=303)
+    try:
+        result = await importer.import_folder(session, Path(d.output_path), d.release, mode=importer.effective_mode(d.protocol), force=force)
+    except importer.ImportError_ as exc:
+        d.status, d.message = "warning", f"import needs attention: {exc}"
+        await session.commit()
+        return RedirectResponse(url(f"/activity/queue?notice=Import+failed:+{str(exc)[:120]}"), status_code=303)
+    d.status, d.progress, d.imported_at = "imported", 1.0, importer.utcnow()
+    d.message = f"{len(result.files)} files → {result.destination}"
+    await session.commit()
+    return RedirectResponse(url(f"/activity/queue?notice=Imported+{len(result.files)}+files"), status_code=303)
 
 
 @protected.get("/activity/history", response_class=HTMLResponse)
@@ -376,7 +467,52 @@ async def settings_media(request: Request):
 @protected.get("/settings/connect", response_class=HTMLResponse)
 async def settings_connect(request: Request, session: AsyncSession = Depends(get_session)):
     notifiers = (await session.scalars(select(Notifier).order_by(Notifier.id))).all()
-    return render(request, "settings/connect.html", notifiers=notifiers)
+    servers = (await session.scalars(select(MediaServer).order_by(MediaServer.id))).all()
+    return render(request, "settings/connect.html", notifiers=notifiers, mediaservers=servers)
+
+
+@protected.post("/settings/connect/mediaservers")
+async def mediaserver_create(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    kind = form.get("type")
+    if kind not in mediaservers.MEDIA_SERVER_TYPES:
+        raise HTTPException(400)
+    m = MediaServer(
+        name=form.get("name") or mediaservers.MEDIA_SERVER_TYPES[kind]["label"],
+        type=kind,
+        url=str(form.get("url", "")).strip(),
+        api_key=str(form.get("api_key", "")),
+        section=str(form.get("section", "")).strip(),
+        local_path=str(form.get("local_path", "")).strip(),
+        remote_path=str(form.get("remote_path", "")).strip(),
+    )
+    if not m.url:
+        return RedirectResponse(url("/settings/connect?notice=Media+server+URL+is+required"), status_code=303)
+    session.add(m)
+    await session.commit()
+    return RedirectResponse(url("/settings/connect?notice=Media+server+added"), status_code=303)
+
+
+@protected.post("/settings/connect/mediaservers/{server_id}/{action}")
+async def mediaserver_action(server_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    m = await session.get(MediaServer, server_id)
+    if not m:
+        raise HTTPException(404)
+    notice = ""
+    if action == "delete":
+        await session.delete(m)
+        notice = "Media+server+removed"
+    elif action == "toggle":
+        m.enabled = not m.enabled
+    elif action == "test":
+        try:
+            notice = (await mediaservers.test(m)).replace(" ", "+")
+            m.last_error = None
+        except Exception as exc:
+            m.last_error = str(exc)[:300]
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"/settings/connect?notice={notice}"), status_code=303)
 
 
 @protected.post("/settings/connect")
@@ -460,17 +596,180 @@ async def system_tasks(request: Request):
         ("refresh", "Refresh artists", f"every {settings.refresh_interval_hours:g} h", "MusicBrainz catalogue and appearances of every monitored artist"),
         ("scan", "Scan library", f"every {settings.scan_interval_hours:g} h", "match folders and tags to releases"),
         ("recommendations", "Rebuild recommendations", f"every {settings.recommendations_interval_hours:g} h", "ListenBrainz and Deezer neighbours of tracked artists"),
-        ("notify", "Send notifications", "every 15 min", "dispatch pending events to connections"),
+        ("notify", "Send notifications", "every minute", "dispatch pending events to connections"),
+        ("rss", "RSS sync", f"every {settings.rss_interval_minutes:g} min", "read indexer feeds and grab missing releases that appear (when automatic grabbing is on)"),
+        ("search", "Search missing", f"every {settings.search_interval_hours:g} h", "search indexers for missing releases (when automatic grabbing is on)"),
+        ("queue", "Check downloads", f"every {settings.queue_poll_seconds:g} s", "poll download clients and import finished downloads"),
     ]
     return render(request, "system/tasks.html", tasks=tasks)
 
 
 @protected.post("/system/tasks/{name}")
 async def run_task(name: str):
-    if name not in ("refresh", "scan", "recommendations", "notify"):
+    if name not in ("refresh", "scan", "recommendations", "notify", "rss", "search", "queue"):
         raise HTTPException(404)
     scheduler.trigger(name)
     return RedirectResponse(url(f"/system/tasks?notice={name}+started"), status_code=303)
+
+
+# --- settings: indexers, download clients -----------------------------------------------
+
+
+@protected.get("/settings/indexers", response_class=HTMLResponse)
+async def settings_indexers(request: Request, session: AsyncSession = Depends(get_session)):
+    rows = (await session.scalars(select(Indexer).order_by(Indexer.priority, Indexer.id))).all()
+    return render(request, "settings/indexers.html", indexers=rows, prefs=await get_prefs(session))
+
+
+@protected.post("/settings/indexers/options")
+async def indexer_options(auto_grab: bool = Form(False), quality_profile: str = Form("lossless"), session: AsyncSession = Depends(get_session)):
+    if quality_profile not in QUALITY_PROFILES:
+        raise HTTPException(400)
+    await set_prefs(session, auto_grab=auto_grab, quality_profile=quality_profile)
+    await session.commit()
+    if auto_grab:
+        scheduler.wake()
+    return RedirectResponse(url("/settings/indexers?notice=Options+saved#options"), status_code=303)
+
+
+@protected.post("/settings/indexers")
+async def indexer_create(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    try:
+        cats = [int(c) for c in str(form.get("categories", "3000")).replace(";", ",").split(",") if c.strip()]
+        i = Indexer(
+            name=form.get("name") or "Indexer",
+            implementation="Newznab" if form.get("implementation") == "Newznab" else "Torznab",
+            base_url=str(form.get("base_url", "")).strip(),
+            api_path=str(form.get("api_path") or "/api"),
+            api_key=str(form.get("api_key", "")),
+            categories=cats or [3000],
+            priority=int(form.get("priority") or 25),
+            minimum_seeders=int(form.get("minimum_seeders") or 0),
+        )
+    except ValueError as exc:
+        return RedirectResponse(url(f"/settings/indexers?notice=Invalid+indexer:+{str(exc)[:80]}"), status_code=303)
+    if not i.base_url:
+        return RedirectResponse(url("/settings/indexers?notice=Indexer+URL+is+required"), status_code=303)
+    try:
+        i.capabilities = await indexers.caps(i)
+    except Exception as exc:
+        i.last_error = str(exc)[:300]
+    session.add(i)
+    await session.commit()
+    return RedirectResponse(url("/settings/indexers?notice=" + ("Indexer+added" if not i.last_error else "Indexer+added,+but+unreachable")), status_code=303)
+
+
+@protected.post("/settings/indexers/{indexer_id}/{action}")
+async def indexer_action(indexer_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    i = await session.get(Indexer, indexer_id)
+    if not i:
+        raise HTTPException(404)
+    notice = ""
+    if action == "delete":
+        await session.delete(i)
+        notice = "Indexer+removed"
+    elif action == "toggle":
+        on = not (i.enable_rss or i.enable_automatic_search or i.enable_interactive_search)
+        i.enable_rss = i.enable_automatic_search = i.enable_interactive_search = on
+    elif action == "test":
+        try:
+            i.capabilities = await indexers.test(i)
+            i.last_error = None
+            notice = f"{i.name}:+OK,+music+search+params+{','.join(i.capabilities.get('music_params') or ['none'])}"
+        except Exception as exc:
+            i.last_error = str(exc)[:300]
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"/settings/indexers?notice={notice}"), status_code=303)
+
+
+@protected.get("/settings/downloadclients", response_class=HTMLResponse)
+async def settings_downloadclients(request: Request, session: AsyncSession = Depends(get_session)):
+    rows = (await session.scalars(select(DownloadClient).order_by(DownloadClient.id))).all()
+    return render(request, "settings/downloadclients.html", clients=rows)
+
+
+@protected.post("/settings/downloadclients")
+async def client_create(request: Request, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
+    impl = form.get("implementation")
+    if impl not in downloadclients.CLIENT_TYPES:
+        raise HTTPException(400)
+    c = DownloadClient(
+        name=form.get("name") or downloadclients.CLIENT_TYPES[impl]["label"],
+        implementation=impl,
+        url=str(form.get("url", "")).strip(),
+        username=str(form.get("username", "")),
+        password=str(form.get("password", "")),
+        api_key=str(form.get("api_key", "")),
+        category=str(form.get("category") or "chordarr"),
+        remote_path=str(form.get("remote_path", "")).strip(),
+        local_path=str(form.get("local_path", "")).strip(),
+        remove_completed=bool(form.get("remove_completed")),
+    )
+    if not c.url:
+        return RedirectResponse(url("/settings/downloadclients?notice=Client+URL+is+required"), status_code=303)
+    session.add(c)
+    await session.commit()
+    return RedirectResponse(url("/settings/downloadclients?notice=Download+client+added"), status_code=303)
+
+
+@protected.post("/settings/downloadclients/{client_id}/{action}")
+async def client_action(client_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    c = await session.get(DownloadClient, client_id)
+    if not c:
+        raise HTTPException(404)
+    notice = ""
+    if action == "delete":
+        await session.delete(c)
+        notice = "Download+client+removed"
+    elif action == "toggle":
+        c.enabled = not c.enabled
+    elif action == "test":
+        try:
+            notice = (await downloadclients.test(c)).replace(" ", "+") + "+reachable"
+            c.last_error = None
+        except Exception as exc:
+            c.last_error = str(exc)[:300]
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"/settings/downloadclients?notice={notice}"), status_code=303)
+
+
+# --- search and grab --------------------------------------------------------------------
+
+
+@protected.get("/releases/{release_id}/search", response_class=HTMLResponse)
+async def release_search_page(request: Request, release_id: int, session: AsyncSession = Depends(get_session)):
+    r = await session.get(Release, release_id)
+    if not r:
+        raise HTTPException(404)
+    artist = await session.get(Artist, r.artist_id)
+    candidates = await acquisition.search_release(session, r)
+    idx = (await session.scalars(select(Indexer).order_by(Indexer.priority))).all()
+    prefs = await get_prefs(session)
+    await session.commit()
+    return render(request, "releases/search.html", release=r, artist=artist, candidates=candidates, indexers=[i for i in idx if i.enable_interactive_search], prefs=prefs)
+
+
+@protected.post("/releases/{release_id}/grab")
+async def release_grab_submit(release_id: int, guid: str = Form(...), indexer_id: int = Form(...), session: AsyncSession = Depends(get_session)):
+    r = await session.get(Release, release_id)
+    if not r:
+        raise HTTPException(404)
+    candidates = await acquisition.search_release(session, r)
+    chosen = next((c for c in candidates if c.guid == guid and c.indexer_id == indexer_id), None)
+    if chosen is None:
+        return RedirectResponse(url(f"/releases/{release_id}/search?notice=That+result+is+gone,+search+again"), status_code=303)
+    try:
+        await acquisition.grab(session, r, chosen, manual=True)
+    except acquisition.GrabError as exc:
+        await session.commit()
+        return RedirectResponse(url(f"/releases/{release_id}/search?notice=Grab+failed:+{str(exc)[:120]}"), status_code=303)
+    await session.commit()
+    scheduler.wake()
+    return RedirectResponse(url("/activity/queue?notice=Sent+to+the+download+client"), status_code=303)
 
 
 router.include_router(protected)

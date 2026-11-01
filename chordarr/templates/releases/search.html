@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block title %}Search · {{ release.title }} · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar"><div class="left"><a class="tool" href="{{ base }}/artists/{{ artist.id }}#rg-{{ release.mbid }}"><svg class="i"><use href="#i-user"/></svg><span>{{ artist.name }}</span></a></div>
+<div class="right"><span class="muted small">profile <b>{{ prefs.quality_profile }}</b> · {{ indexers|length }} indexer{{ 's' if indexers|length != 1 }}</span></div></div>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ artist.name }} – {{ release.title }} <span class="muted small">{{ release.type_label }} · {{ release.first_release_date or 'date unknown' }} · {{ candidates|length }} results</span></h1>
+{% if not indexers %}<div class="notice">No indexer configured. Add Chordarr to Prowlarr as a Lidarr application, or add one in <a href="{{ base }}/settings/indexers">Settings → Indexers</a>.</div>{% endif %}
+{% for i in indexers if i.last_error %}<div class="notice">{{ i.name }}: {{ i.last_error }}</div>{% endfor %}
+<table class="table">
+<thead><tr><th>Title</th><th>Indexer</th><th>Size</th><th>Peers</th><th>Quality</th><th></th></tr></thead>
+<tbody>
+{% for c in candidates %}
+<tr class="{{ '' if c.accepted else 'unmonitored' }}">
+  <td>{{ c.title }}{% if c.rejections %}<div class="text-danger small">{{ c.rejections|join(' · ') }}</div>{% endif %}</td>
+  <td class="muted small nowrap">{{ c.indexer_name }}<br>{{ c.protocol }}{% if c.published %} · {{ c.published.strftime('%Y-%m-%d') }}{% endif %}{% if c.info_url %} · <a target="_blank" rel="noopener" href="{{ c.info_url }}">info</a>{% endif %}</td>
+  <td class="muted nowrap">{{ c.size_label }}</td>
+  <td class="muted nowrap">{% if c.protocol == 'torrent' %}{{ c.seeders if c.seeders is not none else '?' }} / {{ c.leechers if c.leechers is not none else '?' }}{% else %}—{% endif %}</td>
+  <td><span class="label {{ 'success' if c.quality == 'lossless' else 'info' if c.quality == 'high' else '' }}">{{ c.quality }}</span></td>
+  <td class="col-actions"><form method="post" action="{{ base }}/releases/{{ release.id }}/grab"><input type="hidden" name="guid" value="{{ c.guid }}"><input type="hidden" name="indexer_id" value="{{ c.indexer_id }}"><button class="btn sm {{ 'primary' if c.accepted }}" title="Send to the download client"><svg class="i"><use href="#i-download"/></svg> Grab</button></form></td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="muted center">Nothing found{% if indexers %} on {{ indexers|map(attribute='name')|join(', ') }}{% endif %}.</td></tr>
+{% endfor %}
+</tbody></table>
+{% endblock %}

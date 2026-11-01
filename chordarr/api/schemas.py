@@ -127,3 +127,46 @@ class LidarrImportIn(BaseModel):
     url: str | None = None
     api_key: str | None = None
     only_monitored: bool = False
+
+
+# --- acquisition (0.2) ------------------------------------------------------------------
+
+
+class MediaServerIn(BaseModel):
+    name: str
+    type: str  # jellyfin | plex
+    enabled: bool = True
+    url: str
+    api_key: str = ""
+    section: str = ""
+    local_path: str = ""
+    remote_path: str = ""
+
+
+class MediaServerOut(MediaServerIn):
+    id: int
+    last_error: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class GrabIn(BaseModel):
+    guid: str
+    indexer_id: int | None = None
+
+
+class QueueImportIn(BaseModel):
+    path: str | None = None
+    force: bool = False
+
+
+class ManualImportIn(BaseModel):
+    path: str
+    release_id: int | None = None
+    mode: str | None = None  # hardlink | copy | move
+    force: bool = False
+
+
+class AcquisitionConfigIn(BaseModel):
+    auto_grab: bool | None = None
+    quality_profile: str | None = None

@@ -1,4 +1,5 @@
-"""Background loop: refresh artists, scan the library, rebuild recommendations, notify."""
+"""Background loop: refresh artists, scan the library, rebuild recommendations, notify,
+read indexer RSS feeds, search for wanted releases, follow the download queue."""
 
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ from sqlalchemy import select
 from chordarr.config import settings
 from chordarr.db import session_scope
 from chordarr.models import Artist, utcnow
+from chordarr.services import acquisition, importer, library, notify, recommendations
 from chordarr.services import artists as artist_service
-from chordarr.services import library, notify, recommendations
+from chordarr.services.prefs import get_prefs
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +70,33 @@ async def rebuild_recommendations() -> None:
         log.info("recommendations rebuilt: %s candidates", n)
 
 
+async def process_queue() -> None:
+    async with session_scope() as session:
+        c = await importer.process_queue(session)
+        if c["imported"] or c["failed"]:
+            log.info("queue: %s", c)
+    if c["imported"] or c["failed"]:
+        await dispatch()
+
+
+async def rss_sync() -> None:
+    async with session_scope() as session:
+        c = await acquisition.rss_sync(session)
+        if c["indexers"]:
+            log.info("rss: %s", c)
+    await dispatch()
+
+
+async def search_wanted(force: bool = False) -> None:
+    async with session_scope() as session:
+        prefs = await get_prefs(session)
+        if not prefs.auto_grab and not force:
+            return
+        c = await acquisition.search_wanted(session)
+        log.info("search: %s", c)
+    await dispatch()
+
+
 async def dispatch() -> None:
     async with session_scope() as session:
         n = await notify.dispatch_pending(session)
@@ -82,29 +111,39 @@ def trigger(name: str) -> asyncio.Task:
         "scan": scan_library,
         "recommendations": rebuild_recommendations,
         "notify": dispatch,
+        "queue": process_queue,
+        "rss": rss_sync,
+        "search": lambda: search_wanted(force=True),
     }
     return asyncio.create_task(run_job(name, factories[name]))
 
 
+def _due(name: str, every: timedelta) -> bool:
+    last = state["last"].get(name)
+    return last is None or utcnow() - last > every
+
+
 async def loop() -> None:
     await asyncio.sleep(5)
-    tick = 0
     while True:
         try:
-            if tick % 1 == 0:
+            if _due("refresh", timedelta(minutes=15)):
                 await run_job("refresh", refresh_due_artists)
-            last_scan = state["last"].get("scan")
-            if last_scan is None or utcnow() - last_scan > timedelta(hours=settings.scan_interval_hours):
+            if _due("scan", timedelta(hours=settings.scan_interval_hours)):
                 await run_job("scan", scan_library)
-            last_reco = state["last"].get("recommendations")
-            if last_reco is None or utcnow() - last_reco > timedelta(hours=settings.recommendations_interval_hours):
+            if _due("recommendations", timedelta(hours=settings.recommendations_interval_hours)):
                 await run_job("recommendations", rebuild_recommendations)
+            if _due("rss", timedelta(minutes=settings.rss_interval_minutes)):
+                await run_job("rss", rss_sync)
+            if _due("search", timedelta(hours=settings.search_interval_hours)):
+                await run_job("search", search_wanted)
+            if _due("queue", timedelta(seconds=settings.queue_poll_seconds)):
+                await run_job("queue", process_queue)
             await run_job("notify", dispatch)
         except Exception:
             log.exception("scheduler tick failed")
-        tick += 1
         try:
-            await asyncio.wait_for(_wake.wait(), timeout=15 * 60)
+            await asyncio.wait_for(_wake.wait(), timeout=min(60, settings.queue_poll_seconds))
             _wake.clear()
         except TimeoutError:
             pass

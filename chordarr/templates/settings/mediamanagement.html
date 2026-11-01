@@ -8,8 +8,8 @@
 </div>
 <div class="panel">
   <h3>Naming</h3>
-  <p class="muted">Chordarr 0.1 reads, it does not write: these formats describe how your library is laid out so folders can be matched. Renaming arrives with acquisition.</p>
-  <dl class="kv"><dt>Artist folder</dt><dd><code>{{ settings.artist_folder_format }}</code></dd><dt>Album folder</dt><dd><code>{{ settings.album_folder_format }}</code></dd></dl>
+  <p class="muted">How imported releases are filed under the root folder, and how existing folders are matched. Placeholders: <code>{artist}</code>, <code>{album}</code>, <code>{year}</code>, <code>{nn}</code> (zero-padded track), <code>{track}</code>, <code>{disc}</code>, <code>{title}</code>. Nothing already in the library is renamed.</p>
+  <dl class="kv"><dt>Artist folder</dt><dd><code>{{ settings.artist_folder_format }}</code></dd><dt>Album folder</dt><dd><code>{{ settings.album_folder_format }}</code></dd><dt>Track file</dt><dd><code>{{ settings.track_format }}</code></dd><dt>Import mode</dt><dd><code>{{ settings.import_mode }}</code> <span class="muted small">(auto: hard-link torrents, move usenet)</span></dd></dl>
 </div>
 <div class="panel">
   <h3>Matching</h3>

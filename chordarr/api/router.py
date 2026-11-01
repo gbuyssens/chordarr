@@ -71,7 +71,7 @@ async def health(session: AsyncSession = Depends(get_session)):
 
 @router.post("/command/{name}")
 async def command(name: str):
-    if name not in ("refresh", "scan", "recommendations", "notify"):
+    if name not in ("refresh", "scan", "recommendations", "notify", "rss", "search", "queue"):
         raise HTTPException(404, "unknown command")
     scheduler.trigger(name)
     return {"name": name, "status": "queued"}

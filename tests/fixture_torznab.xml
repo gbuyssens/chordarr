@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Prowlarr</title>
+    <item>
+      <title>Damso - QALF Infinity (2021) - FLAC [44.1 kHz / 16 bits]</title>
+      <guid>https://tracker.example/torrents/qalf-flac</guid>
+      <prowlarrindexer id="1" type="semi-private">TR4KER</prowlarrindexer>
+      <comments>https://tracker.example/torrent/qalf-flac</comments>
+      <pubDate>Fri, 15 May 2026 02:05:46 +0200</pubDate>
+      <size>362205550</size>
+      <link>http://prowlarr:9696/1/download?apikey=k&amp;link=abc&amp;file=qalf</link>
+      <category>3000</category>
+      <enclosure url="http://prowlarr:9696/1/download?apikey=k&amp;link=abc&amp;file=qalf" length="362205550" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="3000" />
+      <torznab:attr name="category" value="3040" />
+      <torznab:attr name="seeders" value="12" />
+      <torznab:attr name="peers" value="14" />
+    </item>
+    <item>
+      <title>Damso.QALF.Infinity.2021.MP3.320.FR-GRP</title>
+      <guid>https://tracker.example/torrents/qalf-mp3</guid>
+      <pubDate>Fri, 15 May 2026 02:05:46 +0200</pubDate>
+      <enclosure url="http://prowlarr:9696/1/download?apikey=k&amp;link=def&amp;file=qalf-mp3" length="120000000" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="3010" />
+      <torznab:attr name="seeders" value="40" />
+    </item>
+    <item>
+      <title>Damso - Ipséité (2017) [FLAC]</title>
+      <guid>https://tracker.example/torrents/ipseite</guid>
+      <enclosure url="http://prowlarr:9696/1/download?apikey=k&amp;link=ghi&amp;file=ipseite" length="400000000" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="3040" />
+      <torznab:attr name="seeders" value="3" />
+    </item>
+    <item>
+      <title>Damso - QALF Infinity (2021) WEB FLAC 24bit</title>
+      <guid>https://tracker.example/torrents/qalf-24</guid>
+      <enclosure url="http://prowlarr:9696/1/download?apikey=k&amp;link=jkl&amp;file=qalf24" length="900000000" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="3040" />
+      <torznab:attr name="seeders" value="0" />
+    </item>
+  </channel>
+</rss>

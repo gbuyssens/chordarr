@@ -11,6 +11,7 @@ Matching order, per release of a tracked artist:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -84,7 +85,8 @@ def scan_folder(root: Path, read_tags: bool = True, max_tag_reads_per_folder: in
     out: list[FolderInfo] = []
     if not root.is_dir():
         return out
-    for dirpath, _dirs, files in root.walk():
+    for dirpath_s, _dirs, files in os.walk(root):  # os.walk: Path.walk needs Python 3.12
+        dirpath = Path(dirpath_s)
         audio = [f for f in files if Path(f).suffix.casefold() in AUDIO_EXT]
         if not audio:
             continue
