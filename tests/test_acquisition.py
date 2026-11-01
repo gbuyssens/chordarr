@@ -108,7 +108,21 @@ def test_superset_title_is_another_release():
 
     c = Candidate(title="Damso - QALF infinity (2021) [FLAC]", guid="g", download_url="u", indexer_id=1, indexer_name="i", protocol="torrent")
     assert matches_release(c, "Damso", "QALF infinity")
-    assert matches_release(c, "Damso", "QALF")  # without context it still looks like a match…
-    assert not matches_release(c, "Damso", "QALF", other_titles=("QALF infinity", "Ipséité"))  # …but not next to its sibling
+    assert not matches_release(c, "Damso", "QALF")  # "infinity" is a real extra word
+    assert not matches_release(c, "Damso", "QALF", other_titles=("QALF infinity", "Ipséité"))
     deluxe = Candidate(title="Damso - QALF (Deluxe Edition) FLAC", guid="g2", download_url="u", indexer_id=1, indexer_name="i", protocol="torrent")
     assert matches_release(deluxe, "Damso", "QALF", other_titles=("QALF infinity",))
+
+
+def test_extra_words_tolerates_formats_and_group_tags():
+    from chordarr.services.acquisition import extra_words, matches_release
+    from chordarr.services.indexers import Candidate
+
+    def cand(t):
+        return Candidate(title=t, guid="g", download_url="u", indexer_id=1, indexer_name="i", protocol="torrent")
+
+    assert extra_words("Damso - QALF [2020] [FLAC][16Bit 44.1kHz]", "Damso", "QALF") == []
+    assert extra_words("Damso.QALF.infinity.2021.FLAC16bit.44.1kHz.Hugo00F", "Damso", "QALF") == ["infinity"]
+    assert matches_release(cand("Linkin Park - Meteora (20th Anniversary Edition) WEB FLAC"), "Linkin Park", "Meteora")
+    assert matches_release(cand("Orelsan - Civilisation 2021 FLAC 24Bits - EICHBAUM"), "Orelsan", "Civilisation")
+    assert not matches_release(cand("Orelsan - Civilisation Edition Ultime 2022 FLAC"), "Orelsan", "Civilisation")

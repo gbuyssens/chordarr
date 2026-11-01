@@ -48,13 +48,38 @@ def tokens(text: str) -> set[str]:
     return set(_tokens(text))
 
 
+# Words a release title may carry on top of the artist and album: formats, editions, sources.
+NOISE_WORDS = frozenset(
+    ["flac", "alac", "mp3", "aac", "m4a", "ogg", "opus", "wav", "ape", "wv", "aiff", "dsd", "dsf", "mqa", "lossless", "lossy", "web", "webdl", "webrip", "cd", "cdrip", "vinyl", "lp", "ep", "single", "album", "ost", "soundtrack", "deluxe", "edition", "version", "remaster", "remastered", "expanded", "extended", "bonus", "tracks", "anniversary", "collector", "collectors", "explicit", "clean", "reissue", "special", "limited", "digital", "hi", "res", "hires", "hd", "bit", "bits", "bitrate", "khz", "kbps", "kb", "cbr", "vbr", "stereo", "mono", "japan", "japanese", "jp", "us", "uk", "fr", "eu", "de", "import", "retail", "proper", "repack", "read", "nfo", "complete", "discography", "the", "and", "feat", "ft", "vs", "x"]
+)
+
+
+def extra_words(candidate_title: str, artist_name: str, title: str) -> list[str]:
+    """Words of the candidate that belong neither to the artist, nor to the title, nor to the
+    usual noise (formats, editions, years, bit depths); the last word is tolerated as a
+    release-group tag. Any such word means the candidate names something else:
+    "Damso QALF infinity 2021 FLAC" is not "QALF"."""
+    words = [w for w in normalise(candidate_title).split() if w]
+    known = _tokens(artist_name) | _tokens(title)
+    out = []
+    for i, w in enumerate(words):
+        if w in known or w in NOISE_WORDS or any(ch.isdigit() for ch in w):
+            continue
+        if i == len(words) - 1:
+            continue  # scene group tag at the end
+        out.append(w)
+    return out
+
+
 def matches_release(candidate: Candidate, artist_name: str, title: str, other_titles: tuple[str, ...] = ()) -> bool:
-    """Every word of the artist and of the release title appears in the candidate title, and the
-    candidate does not name another release of the artist whose title extends this one
-    ("QALF infinity" is not a match for "QALF")."""
+    """Every word of the artist and of the release title appears in the candidate title, the
+    candidate adds no word that is not noise, and it does not name another release of the
+    artist whose title extends this one ("QALF infinity" is not a match for "QALF")."""
     have = _tokens(candidate.title)
     want = _tokens(artist_name) | _tokens(title)
     if not want or not want <= have:
+        return False
+    if extra_words(candidate.title, artist_name, title):
         return False
     mine = _tokens(title)
     for other in other_titles:
