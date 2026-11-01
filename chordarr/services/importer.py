@@ -274,6 +274,9 @@ def _import_files(src: Path, release: Release, artist: Artist, mode: str, force:
             if img.is_file() and img.suffix.casefold() in IMAGE_EXT:
                 transfer(img, result.destination / f"cover{img.suffix.casefold()}", "copy" if mode == "hardlink" else mode)
                 break
+    if mode == "move" and src.is_dir() and not audio_files(src):
+        # Moved everything that matters: drop the emptied download folder (artwork, nfo, cue…).
+        shutil.rmtree(src, ignore_errors=True)
     return result
 
 

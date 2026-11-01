@@ -144,3 +144,22 @@ def test_same_album_edition_words_only():
     assert not same_album("alive", "live")
     assert format_name("{album} ({year})", album="Title", year="") == "Title"
     assert format_name("{album} ({year})", album="Title", year=2020) == "Title (2020)"
+
+
+def test_move_import_removes_the_emptied_source_folder(tmp_path, monkeypatch):
+    from chordarr.config import settings
+    from chordarr.models import Artist, Release
+    from chordarr.services.importer import _import_files
+
+    root = tmp_path / "library"
+    root.mkdir()
+    monkeypatch.setattr(settings, "root_folder", root)
+    src = tmp_path / "dl" / "Bekar - Alba (2025) [FLAC]"
+    (src / "__artwork").mkdir(parents=True)
+    (src / "01. Bekar - Intro.flac").write_bytes(b"fLaC" + b"\0" * 64)
+    (src / "__artwork" / "cover.jpg").write_bytes(b"\xff\xd8\xff")
+    artist = Artist(id=1, mbid="a", name="Bekar", sort_name="Bekar", path=str(root / "Bekar"))
+    release = Release(id=1, artist_id=1, mbid="rg", title="Alba", kind="own")
+    result = _import_files(src, release, artist, "move", force=True)
+    assert len(result.files) == 1 and result.files[0].exists()
+    assert not src.exists(), "the emptied download folder should be gone"
