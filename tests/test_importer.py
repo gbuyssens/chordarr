@@ -163,3 +163,20 @@ def test_move_import_removes_the_emptied_source_folder(tmp_path, monkeypatch):
     result = _import_files(src, release, artist, "move", force=True)
     assert len(result.files) == 1 and result.files[0].exists()
     assert not src.exists(), "the emptied download folder should be gone"
+
+
+def test_unwritable_destination_gives_a_readable_error(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    from chordarr.services.importer import ImportError_, transfer
+
+    if os.geteuid() == 0:
+        pytest.skip("root can write anywhere")
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o555)
+    src = tmp_path / "a.flac"
+    src.write_bytes(b"x")
+    with pytest.raises(ImportError_, match="not writable"):
+        transfer(src, locked / "Album" / "a.flac", "copy")

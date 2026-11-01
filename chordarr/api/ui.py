@@ -497,6 +497,8 @@ async def system_status(request: Request, session: AsyncSession = Depends(get_se
     issues = []
     if not settings.root_folder:
         issues.append(("warning", "No root folder configured (CHORDARR_ROOT_FOLDER)."))
+    for folder in library.unwritable_folders():
+        issues.append(("error", f"Folder not writable by Chordarr: {folder}. Imports into it fail; fix the owner or give the group write access (chmod g+w)."))
     for a in (await session.scalars(select(Artist).where(Artist.refresh_error.is_not(None)))).all():
         issues.append(("error", f"{a.name}: {a.refresh_error}"))
     for name, err in scheduler.status()["errors"].items():

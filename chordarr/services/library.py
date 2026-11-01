@@ -194,3 +194,19 @@ def unknown_artist_folders(known_paths: set[str]) -> list[Path]:
     if not root or not Path(root).is_dir():
         return []
     return sorted(p for p in Path(root).iterdir() if p.is_dir() and str(p) not in known_paths and not p.name.startswith("."))
+
+
+def unwritable_folders(limit: int = 20) -> list[Path]:
+    """Root folder and artist folders the service cannot write into (imports would fail there)."""
+    root = settings.root_folder
+    if not root or not Path(root).is_dir():
+        return []
+    out: list[Path] = []
+    if not os.access(root, os.W_OK):
+        out.append(Path(root))
+    for p in sorted(Path(root).iterdir()):
+        if p.is_dir() and not p.name.startswith(".") and not os.access(p, os.W_OK):
+            out.append(p)
+            if len(out) >= limit:
+                break
+    return out

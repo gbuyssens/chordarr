@@ -177,7 +177,13 @@ def check_match(tracks: list[TrackInfo], release: Release, artist: Artist) -> st
 
 
 def transfer(src: Path, dst: Path, mode: str) -> str:
-    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        raise ImportError_(
+            f"cannot create {dst.parent}: the folder above is not writable by the user Chordarr runs as "
+            f"(fix the owner or give the group write access, e.g. chmod g+w). {exc}"
+        ) from exc
     if dst.exists() and dst.stat().st_size == src.stat().st_size:
         return "skipped"
     if mode == "move":
@@ -314,6 +320,12 @@ async def process_queue(session: AsyncSession) -> dict:
     """Poll the download clients, update the queue, import what finished."""
     counters = {"active": 0, "imported": 0, "failed": 0}
     active = (await session.scalars(select(Download).where(Download.status.in_(("grabbed", "downloading", "completed", "importing"))))).all()
+    # Imports that failed on a fixable error (folder not writable) are retried every 10 minutes.
+    retry = (await session.scalars(select(Download).where(Download.status == "warning", Download.message.like("%not writable%")))).all()
+    for d in retry:
+        if utcnow() - (d.updated_at or d.added_at) > timedelta(minutes=10):
+            d.status = "completed"
+            active.append(d)
     if not active:
         return counters
     clients = {c.id: c for c in (await session.scalars(select(DownloadClient))).all()}

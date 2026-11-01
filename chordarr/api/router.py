@@ -62,6 +62,8 @@ async def health(session: AsyncSession = Depends(get_session)):
     issues = []
     if not settings.root_folder:
         issues.append({"type": "warning", "message": "No root folder configured (CHORDARR_ROOT_FOLDER)."})
+    for folder in library.unwritable_folders():
+        issues.append({"source": "RootFolderCheck", "type": "error", "message": f"Folder not writable by Chordarr: {folder}. Imports into it fail; fix the owner or give the group write access (chmod g+w).", "wikiUrl": ""})
     errored = (await session.scalars(select(Artist).where(Artist.refresh_error.is_not(None)))).all()
     for a in errored:
         issues.append({"type": "error", "message": f"{a.name}: {a.refresh_error}"})
