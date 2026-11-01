@@ -388,7 +388,7 @@ async def process_queue(session: AsyncSession) -> dict:
                 await _import_download(session, d, cfg, item, counters)
                 await session.commit()  # the lock must not span the next import's file copies
             else:
-                d.status = "downloading"
+                d.status = "downloading" if item.status == "downloading" else "grabbed"  # queued/paused stay "grabbed"
                 d.message = item.message
                 counters["active"] += 1
     await session.flush()
