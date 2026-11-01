@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 
 from chordarr import __version__
 from chordarr.api.acquisition import router as acquisition_router
+from chordarr.api.feed import router as feed_router
+from chordarr.api.lidarr import router as lidarr_router
 from chordarr.api.lidarr_compat import LIDARR_API_VERSION
 from chordarr.api.router import router as api_router
 from chordarr.api.ui import router as ui_router
@@ -40,6 +42,8 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     app.include_router(api_router)
     app.include_router(acquisition_router)
+    app.include_router(lidarr_router)
+    app.include_router(feed_router)
     app.include_router(ui_router)
 
     @app.middleware("http")

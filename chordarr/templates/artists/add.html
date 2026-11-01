@@ -19,6 +19,9 @@
     <label class="check"><input type="checkbox" name="monitor_ep" checked> EPs</label>
     <label class="check"><input type="checkbox" name="monitor_single" checked> Singles</label>
     <label class="check"><input type="checkbox" name="monitor_appearances" checked> Features</label>
+    <select name="monitor" title="Which releases start monitored">
+      <option value="all">Monitor: All</option><option value="future">Future releases</option><option value="missing">Missing</option><option value="existing">Existing</option><option value="first">First album</option><option value="latest">Latest album</option><option value="none">None</option>
+    </select>
     <button class="btn success"><svg class="i"><use href="#i-plus"/></svg> Add</button>
   </form>
   {% endif %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block title %}Backup · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar"><div class="left"><form method="post" action="{{ base }}/system/backup"><button class="tool"><svg class="i"><use href="#i-download"/></svg><span>Backup now</span></button></form></div></div>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">Backup</h1>
+<p class="muted">A backup holds the database, the API key and <code>chordarr.toml</code>. Scheduled every {{ '%g'|format(settings.backup_interval_days) }} days{% if not settings.backup_interval_days %} (disabled){% endif %}, kept in <code>{{ settings.data_dir }}/Backups</code>. To restore: stop Chordarr, unzip over the data directory, start.</p>
+<table class="table">
+<thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Time</th><th></th></tr></thead>
+<tbody>
+{% for b in backups %}
+<tr><td><a href="{{ base }}{{ b.path }}">{{ b.name }}</a></td><td><span class="label">{{ b.type }}</span></td><td class="muted">{{ (b.size / 1024)|round|int }} KB</td><td class="muted small">{{ b.time|replace('T',' ') }}</td>
+<td class="col-actions"><form method="post" action="{{ base }}/system/backup/delete" onsubmit="return confirm('Delete this backup?')"><input type="hidden" name="kind" value="{{ b.type }}"><input type="hidden" name="name" value="{{ b.name }}"><button class="icon-btn" title="Delete"><svg class="i"><use href="#i-trash"/></svg></button></form></td></tr>
+{% else %}<tr><td colspan="5" class="muted center">No backup yet.</td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

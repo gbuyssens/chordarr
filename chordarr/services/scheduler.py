@@ -19,6 +19,7 @@ from chordarr.services.prefs import get_prefs
 log = logging.getLogger(__name__)
 
 state: dict = {"running": {}, "last": {}, "errors": {}}
+acquisition_hooks: dict = {}  # filled by the acquisition module when present: "rss", "search"
 _lock = asyncio.Lock()  # one heavy job at a time
 _wake = asyncio.Event()
 
@@ -95,6 +96,10 @@ async def search_wanted(force: bool = False) -> None:
         c = await acquisition.search_wanted(session)
         log.info("search: %s", c)
     await dispatch()
+async def scheduled_backup() -> None:
+    from chordarr.services import backup
+
+    await backup.create("scheduled")
 
 
 async def dispatch() -> None:
@@ -114,6 +119,7 @@ def trigger(name: str) -> asyncio.Task:
         "queue": process_queue,
         "rss": rss_sync,
         "search": lambda: search_wanted(force=True),
+        "backup": lambda: scheduled_backup(),
     }
     return asyncio.create_task(run_job(name, factories[name]))
 
@@ -140,6 +146,9 @@ async def loop() -> None:
             if _due("queue", timedelta(seconds=settings.queue_poll_seconds)):
                 await run_job("queue", process_queue)
             await run_job("notify", dispatch)
+            last_backup = state["last"].get("backup")
+            if settings.backup_interval_days and (last_backup is None or utcnow() - last_backup > timedelta(days=settings.backup_interval_days)):
+                await run_job("backup", scheduled_backup)
         except Exception:
             log.exception("scheduler tick failed")
         try:
