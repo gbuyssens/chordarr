@@ -315,7 +315,7 @@ async def search_releases(session: AsyncSession, releases: list[Release]) -> dic
             counters["nothing"] += 1
         else:
             counters["grabbed"] += 1
-        await session.flush()
+        await session.commit()  # release the SQLite write lock between releases
     return counters
 
 
@@ -353,7 +353,7 @@ async def search_wanted(session: AsyncSession, grab_all: bool = False) -> dict:
             except GrabError as exc:
                 log.warning("grab failed for %s: %s", release.title, exc)
                 add_event(session, "download_failed", f"Could not grab {release.title}", str(exc)[:400], release=release)
-        await session.flush()
+        await session.commit()  # release the SQLite write lock between releases
     return counters
 
 
@@ -404,5 +404,6 @@ async def rss_sync(session: AsyncSession) -> dict:
                 counters["grabbed"] += 1
             except GrabError as exc:
                 log.warning("rss grab failed for %s: %s", release.title, exc)
+            await session.commit()
     await session.flush()
     return counters

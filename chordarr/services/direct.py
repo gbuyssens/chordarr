@@ -272,6 +272,7 @@ async def _run(job: Job, client: DownloadClient) -> None:
     from streamrip import db as rip_db
     from streamrip.media import PendingAlbum
 
+    log.info("streamrip job %s: %s on %s (album %s)", job.id, job.title, job.source, job.album_id)
     try:
         sc = await source_client(client, job.source)
         config = _configs[client.id]
@@ -286,6 +287,7 @@ async def _run(job: Job, client: DownloadClient) -> None:
         job.progress = 1.0
         job.status = "completed"
         job.message = f"{len(album.tracks)} tracks"
+        log.info("streamrip job %s done: %s → %s", job.id, job.title, job.path)
     except Exception as exc:
         log.warning("streamrip download failed: %s: %s", job.title, clean_error(exc))
         job.status = "failed"
