@@ -232,7 +232,7 @@ async def grab(session: AsyncSession, release: Release, candidate: Candidate, ma
 
     dl = Download(
         release_id=release.id,
-        indexer_id=candidate.indexer_id,
+        indexer_id=candidate.indexer_id or None,  # direct sources have no indexer row
         download_client_id=client_cfg.id,
         title=candidate.title,
         guid=candidate.guid,

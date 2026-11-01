@@ -73,3 +73,38 @@ def test_direct_candidates_rank_above_equal_torrents():
     dz = Candidate(title="Damso - QALF (2020) [Deezer FLAC]", guid="d", download_url="direct:7:deezer:1", indexer_id=0, indexer_name="Deezer", protocol="direct", quality="lossless")
     ranked = evaluate([torrent, dz], "Damso", rel, "lossless", {})
     assert ranked[0].protocol == "direct" and all(c.accepted for c in ranked)
+
+
+async def test_grab_direct_creates_a_download_without_indexer(monkeypatch):
+    from sqlalchemy import delete
+
+    from chordarr.db import SessionLocal, init_db
+    from chordarr.models import Artist, Download, Release
+    from chordarr.services import acquisition
+    from chordarr.services.indexers import Candidate
+
+    await init_db()
+    async with SessionLocal() as session:
+        await session.execute(delete(Download))
+        await session.execute(delete(Artist))
+        artist = Artist(mbid="a-mbid", name="Bekar", sort_name="Bekar")
+        session.add(artist)
+        await session.flush()
+        rel = Release(artist_id=artist.id, mbid="rg-alba", title="Alba", kind="own")
+        dc = DownloadClient(name="Comptes", implementation="streamrip", url="streamrip://local", enabled=True, settings={"deezer_arl": "x", "quality": 2})
+        session.add_all([rel, dc])
+        await session.flush()
+
+        def fake_start(cfg, source, album_id, title):
+            job = direct.Job(id="rip-t", title=title, source=source, album_id=album_id)
+            direct.JOBS[job.id] = job
+            return job
+
+        monkeypatch.setattr(direct, "start", fake_start)
+        cand = Candidate(title="Bekar - Alba [Deezer FLAC]", guid=f"direct:{dc.id}:deezer:765", download_url=f"direct:{dc.id}:deezer:765", indexer_id=0, indexer_name="Deezer", protocol="direct", quality="lossless")
+        dl = await acquisition.grab(session, rel, cand, manual=True)
+        await session.commit()
+        assert dl.indexer_id is None and dl.client_id == "rip-t" and dl.protocol == "direct"
+        await session.delete(dl)
+        await session.delete(dc)
+        await session.commit()
