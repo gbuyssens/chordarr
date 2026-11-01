@@ -159,6 +159,11 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
             existing[rg.mbid] = rel
             _apply_group(rel, rg)
             await session.flush()
+        roles = {_role_for(track, artist.mbid, rg) for track in app.tracks}
+        if is_new_release:
+            # Compilations and "best of" slots are noise for most people: present, but not
+            # wanted by default. Real features and remixes follow the artist's setting.
+            rel.monitored = artist.monitored and artist.monitor_appearances and roles != {"compilation"}
         for track in app.tracks:
             key = (rg.mbid, track.recording_mbid)
             if key in known_appearances:

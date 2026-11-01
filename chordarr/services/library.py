@@ -14,6 +14,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import select
@@ -38,7 +39,7 @@ def normalise(text: str) -> str:
     return text.strip()
 
 
-@dataclass
+@dataclass(eq=False)
 class FolderInfo:
     path: Path
     audio_files: int = 0
@@ -105,39 +106,71 @@ def artist_folder(artist: Artist) -> Path | None:
     return None
 
 
+def folder_year(name: str) -> int | None:
+    m = re.search(r"[\(\[]\s*((?:19|20)\d{2})\s*[\)\]]\s*$", name)
+    return int(m.group(1)) if m else None
+
+
+def match_folders(folders: list[FolderInfo], releases: list[Release]) -> dict[int, FolderInfo]:
+    """Pair each folder with at most one release and each release with at most one folder.
+
+    Release-group tags win. Then folder names: when several releases share a title (an
+    album and its deluxe edition, a single named like the album), the one whose year matches
+    the folder's ``(year)`` suffix wins, then the artist's own releases over appearances.
+    """
+    by_id = {r.mbid: r for r in releases}
+    by_title: dict[str, list[Release]] = {}
+    for r in releases:
+        by_title.setdefault(normalise(r.title), []).append(r)
+    paired: dict[int, FolderInfo] = {}
+    taken: set[int] = set()
+
+    def take(rel: Release, folder: FolderInfo) -> None:
+        paired[rel.id] = folder
+        taken.add(rel.id)
+
+    for f in folders:
+        for rg in f.rg_ids:
+            rel = by_id.get(rg)
+            if rel and rel.id not in taken:
+                take(rel, f)
+                break
+    for f in folders:
+        if f in paired.values():
+            continue
+        candidates = [r for r in by_title.get(normalise(f.path.name), []) if r.id not in taken]
+        if not candidates:
+            continue
+        year = folder_year(f.path.name)
+        candidates.sort(key=lambda r: (r.year != year if year else False, r.kind != "own", r.first_release_date or date.max))
+        take(candidates[0], f)
+    return paired
+
+
 async def scan_artist(session: AsyncSession, artist: Artist) -> dict:
     folder = artist_folder(artist)
     counters = {"matched": 0, "unmatched_folders": 0}
     if not folder or not folder.is_dir():
         return counters
     folders = scan_folder(folder)
-    by_rg: dict[str, FolderInfo] = {}
-    by_name: dict[str, FolderInfo] = {}
-    for f in folders:
-        for rg in f.rg_ids:
-            by_rg[rg] = f
-        by_name.setdefault(normalise(f.path.name), f)
-
-    used: set[Path] = set()
     releases = (await session.scalars(select(Release).where(Release.artist_id == artist.id))).all()
+    paired = match_folders(folders, releases)
+
     for rel in releases:
-        hit = by_rg.get(rel.mbid) or by_name.get(normalise(rel.title))
+        hit = paired.get(rel.id)
         if hit is None:
-            if rel.status == "have":
+            if rel.status in ("have", "partial"):
                 rel.status, rel.path, rel.file_count = "missing", None, 0
             continue
-        used.add(hit.path)
         was = rel.status
         rel.path = str(hit.path)
         rel.file_count = hit.audio_files
-        if rel.track_count and hit.audio_files < rel.track_count:
-            rel.status = "partial"
-        else:
-            rel.status = "have"
+        rel.status = "partial" if rel.track_count and hit.audio_files < rel.track_count else "have"
         counters["matched"] += 1
         if was != "have" and rel.status == "have":
             add_event(session, "release_imported", f"{artist.name}: {rel.title} is in the library", f"{hit.audio_files} files in {hit.path}", artist=artist, release=rel)
-    counters["unmatched_folders"] = len([f for f in folders if f.path not in used])
+    used = set(paired.values())
+    counters["unmatched_folders"] = len([f for f in folders if f not in used])
     await session.flush()
     return counters
 
