@@ -50,7 +50,7 @@ def tokens(text: str) -> set[str]:
 
 # Words a release title may carry on top of the artist and album: formats, editions, sources.
 NOISE_WORDS = frozenset(
-    ["flac", "alac", "mp3", "aac", "m4a", "ogg", "opus", "wav", "ape", "wv", "aiff", "dsd", "dsf", "mqa", "lossless", "lossy", "web", "webdl", "webrip", "cd", "cdrip", "vinyl", "lp", "ep", "single", "album", "ost", "soundtrack", "deluxe", "edition", "version", "remaster", "remastered", "expanded", "extended", "bonus", "tracks", "anniversary", "collector", "collectors", "explicit", "clean", "reissue", "special", "limited", "digital", "hi", "res", "hires", "hd", "bit", "bits", "bitrate", "khz", "kbps", "kb", "cbr", "vbr", "stereo", "mono", "japan", "japanese", "jp", "us", "uk", "fr", "eu", "de", "import", "retail", "proper", "repack", "read", "nfo", "complete", "discography", "the", "and", "feat", "ft", "vs", "x"]
+    ["flac", "alac", "mp3", "aac", "m4a", "ogg", "opus", "wav", "ape", "wv", "aiff", "dsd", "dsf", "mqa", "lossless", "lossy", "web", "webdl", "webrip", "cd", "cdrip", "vinyl", "lp", "ep", "single", "album", "ost", "soundtrack", "deluxe", "edition", "version", "remaster", "remastered", "expanded", "extended", "bonus", "tracks", "anniversary", "collector", "collectors", "explicit", "clean", "reissue", "special", "limited", "digital", "hi", "res", "hires", "hd", "bit", "bits", "bitrate", "khz", "kbps", "kb", "cbr", "vbr", "stereo", "mono", "japan", "japanese", "jp", "us", "uk", "fr", "eu", "de", "import", "retail", "proper", "repack", "read", "nfo", "complete", "discography", "the", "and", "feat", "ft", "vs", "x", "qobuz", "deezer", "tidal", "soundcloud", "amazon", "streamrip"]
 )
 
 
