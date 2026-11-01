@@ -219,6 +219,10 @@ async def pick_client(session: AsyncSession, protocol: str, preferred_id: int | 
 
 async def grab(session: AsyncSession, release: Release, candidate: Candidate, manual: bool = False) -> Download:
     """Send one candidate to a download client and put it in the queue."""
+    if not manual:
+        busy = (await session.scalars(_busy_mbids_query().where(Release.mbid == release.mbid))).first()
+        if busy:
+            raise GrabError("this record is already queued or imported for another of your artists")
     artist = await session.get(Artist, release.artist_id)
     if candidate.protocol == "direct":
         client_id, _source, _album = direct.parse_ref(candidate.download_url)
@@ -275,18 +279,39 @@ async def grab(session: AsyncSession, release: Release, candidate: Candidate, ma
     return dl
 
 
+def _busy_mbids_query():
+    """Release groups already queued or imported, whichever tracked artist they were grabbed for."""
+    return (
+        select(Release.mbid)
+        .join(Download, Download.release_id == Release.id)
+        .where(Download.status.in_(("grabbed", "downloading", "completed", "importing", "imported")))
+    )
+
+
 async def wanted_releases(session: AsyncSession, due_only: bool = True, limit: int = 25) -> list[Release]:
-    """Monitored, missing, already out, not in the queue and (optionally) not searched lately."""
+    """Monitored, missing, already out, not in the queue (for any tracked artist) and (optionally)
+    not searched lately. The same record appearing under several tracked artists is wanted once."""
     active = select(Download.release_id).where(Download.status.in_(("grabbed", "downloading", "completed", "importing")))
+    have_elsewhere = select(Release.mbid).where(Release.status == "have")
     q = (
         select(Release)
         .where(Release.monitored.is_(True), Release.status.in_(("missing", "partial")), Release.first_release_date <= date.today())
         .where(Release.id.not_in(active))
+        .where(Release.mbid.not_in(_busy_mbids_query()))
+        .where(Release.mbid.not_in(have_elsewhere))
     )
+    rows = list((await session.scalars(q.order_by(Release.last_search_at.nulls_first(), Release.first_release_date.desc()))).all())
+    seen: set[str] = set()
+    unique = []
+    for r in rows:
+        if r.mbid in seen:
+            continue
+        seen.add(r.mbid)
+        unique.append(r)
     if due_only:
         cutoff = utcnow() - timedelta(hours=settings.search_interval_hours)
-        q = q.where((Release.last_search_at.is_(None)) | (Release.last_search_at < cutoff))
-    return (await session.scalars(q.order_by(Release.last_search_at.nulls_first(), Release.first_release_date.desc()).limit(limit))).all()
+        unique = [r for r in unique if r.last_search_at is None or r.last_search_at < cutoff]
+    return unique[:limit]
 
 
 async def grab_best(session: AsyncSession, release: Release) -> Download | None:
@@ -326,6 +351,8 @@ async def monitored_missing(session: AsyncSession, artist_id: int) -> list[Relea
         select(Release)
         .where(Release.artist_id == artist_id, Release.monitored.is_(True), Release.status.in_(("missing", "partial")), Release.first_release_date <= date.today())
         .where(Release.id.not_in(active))
+        .where(Release.mbid.not_in(_busy_mbids_query()))
+        .where(Release.mbid.not_in(select(Release.mbid).where(Release.status == "have")))
         .order_by(Release.first_release_date.desc())
     )
     return list((await session.scalars(q)).all())

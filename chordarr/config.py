@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     search_interval_hours: float = 6
     rss_interval_minutes: float = 30
     queue_poll_seconds: float = 60
+    direct_concurrency: int = 2  # albums ripped at the same time by direct sources
 
     # Upstream services
     musicbrainz_url: str = "https://musicbrainz.org/ws/2"

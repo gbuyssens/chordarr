@@ -242,6 +242,9 @@ async def import_folder(
     release.path = str(result.destination)
     release.file_count = len(result.files)
     release.status = "partial" if release.track_count and len(result.files) < release.track_count else "have"
+    # The same record tracked through another artist (a feature on it) is now on disk as well.
+    for sibling in (await session.scalars(select(Release).where(Release.mbid == release.mbid, Release.id != release.id))).all():
+        sibling.path, sibling.file_count, sibling.status = release.path, release.file_count, release.status
     add_event(
         session,
         "release_imported",
@@ -383,6 +386,7 @@ async def process_queue(session: AsyncSession) -> dict:
                 counters["failed"] += 1
             elif item.status == "completed":
                 await _import_download(session, d, cfg, item, counters)
+                await session.commit()  # the lock must not span the next import's file copies
             else:
                 d.status = "downloading"
                 d.message = item.message

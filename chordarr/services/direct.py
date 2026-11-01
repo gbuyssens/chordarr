@@ -64,6 +64,15 @@ class Job:
 
 
 JOBS: dict[str, Job] = {}
+_slots: asyncio.Semaphore | None = None
+
+
+def slots() -> asyncio.Semaphore:
+    """At most ``settings.direct_concurrency`` albums rip at the same time; the rest wait as queued."""
+    global _slots
+    if _slots is None:
+        _slots = asyncio.Semaphore(max(1, int(getattr(settings, "direct_concurrency", 2))))
+    return _slots
 
 
 # --- configuration --------------------------------------------------------------------------
@@ -272,22 +281,25 @@ async def _run(job: Job, client: DownloadClient) -> None:
     from streamrip import db as rip_db
     from streamrip.media import PendingAlbum
 
-    log.info("streamrip job %s: %s on %s (album %s)", job.id, job.title, job.source, job.album_id)
     try:
-        sc = await source_client(client, job.source)
-        config = _configs[client.id]
-        job.status = "downloading"
-        pending = PendingAlbum(job.album_id, sc, config, rip_db.Database(rip_db.Dummy(), rip_db.Dummy()))
-        album = await pending.resolve()
-        if album is None:
-            raise RuntimeError("album not available on this source")
-        job.path = album.folder
-        job.progress = 0.1
-        await album.rip()
-        job.progress = 1.0
-        job.status = "completed"
-        job.message = f"{len(album.tracks)} tracks"
-        log.info("streamrip job %s done: %s → %s", job.id, job.title, job.path)
+        async with slots():
+            if job.id not in JOBS:
+                return  # removed while waiting
+            log.info("streamrip job %s: %s on %s (album %s)", job.id, job.title, job.source, job.album_id)
+            sc = await source_client(client, job.source)
+            config = _configs[client.id]
+            job.status = "downloading"
+            pending = PendingAlbum(job.album_id, sc, config, rip_db.Database(rip_db.Dummy(), rip_db.Dummy()))
+            album = await pending.resolve()
+            if album is None:
+                raise RuntimeError("album not available on this source")
+            job.path = album.folder
+            job.progress = 0.1
+            await album.rip()
+            job.progress = 1.0
+            job.status = "completed"
+            job.message = f"{len(album.tracks)} tracks"
+            log.info("streamrip job %s done: %s → %s", job.id, job.title, job.path)
     except Exception as exc:
         log.warning("streamrip download failed: %s: %s", job.title, clean_error(exc))
         job.status = "failed"
