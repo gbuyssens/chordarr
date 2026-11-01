@@ -182,9 +182,26 @@ class QBittorrent:
             r = await self._call("POST", "/api/v2/torrents/add", data={**data, "urls": url})
         else:
             raise ClientError("nothing to add")
-        if r.text.strip() not in ("Ok.", ""):
-            raise ClientError(f"qBittorrent refused the torrent: {r.text.strip()[:80]}")
-        return info_hash
+        return await self._added(r, info_hash)
+
+    async def _added(self, r: httpx.Response, info_hash: str) -> str:
+        """qBittorrent ≤ 5.2 answers ``Ok.``/``Fails.``; 5.3+ answers JSON with the hashes."""
+        text = r.text.strip()
+        if text in ("Ok.", ""):
+            return info_hash
+        if text.startswith("{"):
+            data = r.json()
+            ids = [h.lower() for h in data.get("added_torrent_ids") or []]
+            if ids:
+                return ids[0]
+            if info_hash and await self._exists(info_hash):
+                return info_hash  # already there (re-grab of the same torrent)
+            raise ClientError(f"qBittorrent did not add the torrent: {text[:120]}")
+        raise ClientError(f"qBittorrent refused the torrent: {text[:80]}")
+
+    async def _exists(self, info_hash: str) -> bool:
+        rows = (await self._call("GET", "/api/v2/torrents/info", params={"hashes": info_hash})).json()
+        return any(t.get("hash", "").lower() == info_hash for t in rows)
 
     async def items(self) -> list[ClientItem]:
         params = {"category": self.cfg.category} if self.cfg.category else {}
