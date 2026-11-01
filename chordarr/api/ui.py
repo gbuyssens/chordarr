@@ -338,9 +338,9 @@ async def import_lidarr_ui(
         try:
             await artist_service.add_artist(session, row.mbid, path=row.path, monitored=row.monitored, refresh=False)
             added += 1
+            await session.commit()
         except (artist_service.ArtistExists, ValueError):
             skipped += 1
-    await session.commit()
     scheduler.trigger("refresh")
     return RedirectResponse(f"{settings.url_base}/settings?notice={added}+artists+imported,+{skipped}+skipped;+refresh+running", status_code=303)
 

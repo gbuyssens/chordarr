@@ -74,113 +74,113 @@ def _role_for(track: mb.TrackCredit, artist_mbid: str, group: mb.ReleaseGroupInf
 async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool = True) -> dict:
     """Pull the artist's release groups and appearances from MusicBrainz, diff and record.
 
-    Returns counters for the caller's logs. ``announce`` controls whether differences are
-    recorded as events (and therefore notified): the very first fetch of a new artist is
-    not a stream of "new release" news.
+    Network first, database second: every MusicBrainz and Deezer call happens before the
+    first write, so the SQLite write lock is held for milliseconds, not for the thirty
+    seconds a prolific artist takes to fetch. ``announce`` controls whether differences
+    become events (and notifications): the first fetch of a new artist is not news.
     """
     counters = {"own_new": 0, "appearance_new": 0, "updated": 0}
     try:
         info = await mb.get_artist(artist.mbid)
-        if info:
-            artist.name, artist.sort_name = info.name, info.sort_name or info.name
-            artist.disambiguation, artist.type, artist.country = info.disambiguation, info.type, info.country
-            if info.deezer_id and not artist.deezer_id:
-                artist.deezer_id = info.deezer_id
-        await _refresh_picture(artist)
-
-        # Explicit queries: the async session cannot lazy-load collections of an object that
-        # was just flushed, and selectin loading does not cover that case either.
-        existing: dict[str, Release] = {
-            r.mbid: r for r in (await session.scalars(select(Release).where(Release.artist_id == artist.id))).all()
-        }
-        known_appearances: set[tuple[str, str]] = set(
-            (
-                await session.execute(
-                    select(Release.mbid, Appearance.recording_mbid)
-                    .join(Appearance, Appearance.release_id == Release.id)
-                    .where(Appearance.artist_id == artist.id)
-                )
-            ).all()
-        )
-
-        # 1. Release groups the artist is credited on.
+        picture = await _fetch_picture(artist, info)
         own_groups = await mb.artist_release_groups(artist.mbid)
-        own_ids = {rg.mbid for rg in own_groups}
-        for rg in own_groups:
-            rel = existing.get(rg.mbid)
-            if rel is None:
-                rel = Release(
-                    artist_id=artist.id,
-                    mbid=rg.mbid,
-                    kind="own",
-                    monitored=artist.monitored and rg.primary_type in (artist.monitor_types or []),
-                    cover_url=release_group_cover(rg.mbid),
-                )
-                session.add(rel)
-                existing[rg.mbid] = rel
-                counters["own_new"] += 1
-                _apply_group(rel, rg)
-                await session.flush()
-                if announce:
-                    _announce_release(session, artist, rel)
-            else:
-                if _apply_group(rel, rg):
-                    counters["updated"] += 1
-                if rel.kind != "own":
-                    rel.kind = "own"
-
-        # 2. Releases where the artist is credited on tracks only → appearances.
-        for app in await mb.artist_appearances(artist.mbid):
-            rg = app.release_group
-            if rg.mbid in own_ids:
-                continue
-            rel = existing.get(rg.mbid)
-            is_new_release = rel is None
-            if rel is None:
-                rel = Release(
-                    artist_id=artist.id,
-                    mbid=rg.mbid,
-                    kind="appearance",
-                    monitored=artist.monitored and artist.monitor_appearances,
-                    cover_url=release_group_cover(rg.mbid),
-                )
-                session.add(rel)
-                existing[rg.mbid] = rel
-                _apply_group(rel, rg)
-                await session.flush()
-            for track in app.tracks:
-                key = (rg.mbid, track.recording_mbid)
-                if key in known_appearances:
-                    continue
-                ap = Appearance(
-                    artist_id=artist.id,
-                    release_id=rel.id,
-                    recording_mbid=track.recording_mbid,
-                    recording_title=track.title,
-                    artist_credit=track.artist_credit,
-                    role=_role_for(track, artist.mbid, rg),
-                )
-                session.add(ap)
-                known_appearances.add(key)
-                if is_new_release:
-                    counters["appearance_new"] += 1
-                    is_new_release = False
-                    if announce:
-                        _announce_appearance(session, artist, rel, ap)
-
-        artist.last_refresh = utcnow()
-        artist.refresh_error = None
+        appearances = await mb.artist_appearances(artist.mbid)
     except Exception as exc:
         log.exception("refresh %s failed", artist.name)
-        message = str(exc)[:500]
-        try:
+        artist.refresh_error = str(exc)[:500]
+        add_event(session, "error", f"Refresh failed for {artist.name}", str(exc)[:500], artist=artist)
+        await session.flush()
+        return counters
+
+    if info:
+        artist.name, artist.sort_name = info.name, info.sort_name or info.name
+        artist.disambiguation, artist.type, artist.country = info.disambiguation, info.type, info.country
+        if info.deezer_id and not artist.deezer_id:
+            artist.deezer_id = info.deezer_id
+    if picture:
+        artist.deezer_id, artist.image_url = picture
+
+    # Explicit queries: the async session cannot lazy-load collections of an object that
+    # was just flushed, and selectin loading does not cover that case either.
+    existing: dict[str, Release] = {
+        r.mbid: r for r in (await session.scalars(select(Release).where(Release.artist_id == artist.id))).all()
+    }
+    known_appearances: set[tuple[str, str]] = set(
+        (
+            await session.execute(
+                select(Release.mbid, Appearance.recording_mbid)
+                .join(Appearance, Appearance.release_id == Release.id)
+                .where(Appearance.artist_id == artist.id)
+            )
+        ).all()
+    )
+
+    # 1. Release groups the artist is credited on.
+    own_ids = {rg.mbid for rg in own_groups}
+    for rg in own_groups:
+        rel = existing.get(rg.mbid)
+        if rel is None:
+            rel = Release(
+                artist_id=artist.id,
+                mbid=rg.mbid,
+                kind="own",
+                monitored=artist.monitored and rg.primary_type in (artist.monitor_types or []),
+                cover_url=release_group_cover(rg.mbid),
+            )
+            session.add(rel)
+            existing[rg.mbid] = rel
+            counters["own_new"] += 1
+            _apply_group(rel, rg)
             await session.flush()
-        except Exception:
-            # The flush itself failed: drop the half-applied changes, keep the error on record.
-            await session.rollback()
-            artist = await session.get(Artist, artist.id) or artist
-        artist.refresh_error = message
-        add_event(session, "error", f"Refresh failed for {artist.name}", message, artist=artist)
+            if announce:
+                _announce_release(session, artist, rel)
+        else:
+            if _apply_group(rel, rg):
+                counters["updated"] += 1
+            if rel.kind != "own":
+                rel.kind = "own"
+
+    # 2. Releases where the artist is credited on tracks only → appearances.
+    for app in appearances:
+        rg = app.release_group
+        if rg.mbid in own_ids:
+            continue
+        rel = existing.get(rg.mbid)
+        is_new_release = rel is None
+        if rel is None:
+            rel = Release(
+                artist_id=artist.id,
+                mbid=rg.mbid,
+                kind="appearance",
+                monitored=artist.monitored and artist.monitor_appearances,
+                cover_url=release_group_cover(rg.mbid),
+            )
+            session.add(rel)
+            existing[rg.mbid] = rel
+            _apply_group(rel, rg)
+            await session.flush()
+        for track in app.tracks:
+            key = (rg.mbid, track.recording_mbid)
+            if key in known_appearances:
+                continue
+            ap = Appearance(
+                artist_id=artist.id,
+                release_id=rel.id,
+                recording_mbid=track.recording_mbid,
+                recording_title=track.title,
+                artist_credit=track.artist_credit,
+                role=_role_for(track, artist.mbid, rg),
+            )
+            session.add(ap)
+            known_appearances.add(key)
+            if is_new_release:
+                counters["appearance_new"] += 1
+                is_new_release = False
+                if announce:
+                    _announce_appearance(session, artist, rel, ap)
+
+    artist.last_refresh = utcnow()
+    artist.refresh_error = None
     await session.flush()
     return counters
 
@@ -228,10 +228,12 @@ def _announce_appearance(session, artist: Artist, rel: Release, ap: Appearance) 
     )
 
 
-async def _refresh_picture(artist: Artist) -> None:
+async def _fetch_picture(artist: Artist, info: mb.ArtistInfo | None) -> tuple[int, str | None] | None:
+    """Deezer id and picture URL, or None when nothing needs changing."""
     if artist.image_url and artist.deezer_id:
-        return
-    dz = await deezer.get_artist(artist.deezer_id) if artist.deezer_id else await deezer.search_artist(artist.name)
-    if dz:
-        artist.deezer_id = dz.id
-        artist.image_url = dz.picture or artist.image_url
+        return None
+    deezer_id = artist.deezer_id or (info.deezer_id if info else None)
+    dz = await deezer.get_artist(deezer_id) if deezer_id else await deezer.search_artist(artist.name)
+    if not dz:
+        return None
+    return dz.id, dz.picture or artist.image_url

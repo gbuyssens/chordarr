@@ -276,11 +276,11 @@ async def import_lidarr(body: schemas.LidarrImportIn, session: AsyncSession = De
         try:
             a = await artist_service.add_artist(session, row.mbid, path=row.path, monitored=row.monitored, refresh=False)
             added.append(a.name)
+            await session.commit()  # one short transaction per artist
         except artist_service.ArtistExists:
             skipped.append(row.name)
         except ValueError as exc:
             skipped.append(f"{row.name} ({exc})")
-    await session.commit()
     scheduler.trigger("refresh")
     return {"added": added, "skipped": skipped}
 
