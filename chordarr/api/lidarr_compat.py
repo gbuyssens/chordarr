@@ -223,7 +223,7 @@ def client_schema() -> list[dict]:
         for i, name in enumerate(names):
             f = {"order": i, "name": name, "advanced": False, "privacy": "normal", **_CLIENT_FIELD_DEFS[name]}
             if name == "port":
-                f["value"] = 8080 if internal == "qbittorrent" else 8080
+                f["value"] = 8080  # qBittorrent and SABnzbd both default to 8080
             fields.append(f)
         out.append({"enable": True, "protocol": protocol, "priority": 1, "removeCompletedDownloads": False, "removeFailedDownloads": True, "name": None, "fields": fields, "implementationName": impl, "implementation": impl, "configContract": contract, "infoLink": f"https://wiki.servarr.com/lidarr/supported#{internal}", "tags": []})
     return out
@@ -255,13 +255,13 @@ def apply_client(client, body: dict):
     if not host:
         raise ValueError("host is required")
     client.url = join_url(str(host), port, bool(use_ssl), str(url_base))
-    for name, attr in (("username", "username"), ("apiKey", "api_key"), ("musicCategory", "category")):
+    for name, attr in (("username", "username"), ("musicCategory", "category")):
         if name in fields and fields[name] is not None:
             setattr(client, attr, str(fields[name]))
-    if "password" in fields and fields["password"] not in (None, MASK):
-        client.password = str(fields["password"])
-    if "apiKey" in fields and fields["apiKey"] == MASK:
-        pass
+    # Secrets come back masked when a client echoes what it read: keep the stored value then.
+    for name, attr in (("password", "password"), ("apiKey", "api_key")):
+        if name in fields and fields[name] not in (None, MASK):
+            setattr(client, attr, str(fields[name]))
     extra = dict(client.settings or {})
     known = {"host", "port", "useSsl", "urlBase", "username", "password", "apiKey", "musicCategory"}
     extra.update({k: v for k, v in fields.items() if k not in known and k})

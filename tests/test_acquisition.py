@@ -100,3 +100,15 @@ def test_search_uses_text_query_when_indexer_has_no_artist_param(monkeypatch):
     calls.clear()
     asyncio.run(indexers.search(idx(capabilities={"music_params": ["q", "artist", "album"]}), "Damso", "QALF Infinity"))
     assert calls[0]["artist"] == "Damso" and calls[0]["album"] == "QALF Infinity"
+
+
+def test_superset_title_is_another_release():
+    from chordarr.services.acquisition import matches_release
+    from chordarr.services.indexers import Candidate
+
+    c = Candidate(title="Damso - QALF infinity (2021) [FLAC]", guid="g", download_url="u", indexer_id=1, indexer_name="i", protocol="torrent")
+    assert matches_release(c, "Damso", "QALF infinity")
+    assert matches_release(c, "Damso", "QALF")  # without context it still looks like a match…
+    assert not matches_release(c, "Damso", "QALF", other_titles=("QALF infinity", "Ipséité"))  # …but not next to its sibling
+    deluxe = Candidate(title="Damso - QALF (Deluxe Edition) FLAC", guid="g2", download_url="u", indexer_id=1, indexer_name="i", protocol="torrent")
+    assert matches_release(deluxe, "Damso", "QALF", other_titles=("QALF infinity",))

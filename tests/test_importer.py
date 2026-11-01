@@ -133,3 +133,14 @@ def test_map_path():
     assert map_path(c, "/downloads/chordarr/Album") == Path("/mnt/dl/chordarr/Album")
     assert map_path(c, "/elsewhere/Album") == Path("/elsewhere/Album")
     assert map_path(DownloadClient(name="q", implementation="qbittorrent", url="http://x"), "/data/x") == Path("/data/x")
+
+
+def test_same_album_edition_words_only():
+    from chordarr.services.importer import format_name, same_album
+
+    assert same_album("qalf", "qalf")
+    assert same_album("qalf deluxe edition 2021", "qalf")
+    assert not same_album("qalf infinity", "qalf")
+    assert not same_album("alive", "live")
+    assert format_name("{album} ({year})", album="Title", year="") == "Title"
+    assert format_name("{album} ({year})", album="Title", year=2020) == "Title (2020)"

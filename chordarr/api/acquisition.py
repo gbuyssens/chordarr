@@ -393,9 +393,10 @@ async def queue_import(download_id: int, body: schemas.QueueImportIn | None = No
     d = await session.get(Download, download_id)
     if not d or not d.release:
         raise HTTPException(404)
-    path = Path((body.path if body and body.path else None) or d.output_path or "")
-    if not str(path):
+    raw = (body.path if body and body.path else None) or d.output_path
+    if not raw:
         raise HTTPException(400, "no path known for this download; give one")
+    path = Path(raw)
     try:
         result = await importer.import_folder(session, path, d.release, mode=importer.effective_mode(d.protocol), force=bool(body and body.force))
     except importer.ImportError_ as exc:

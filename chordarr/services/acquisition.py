@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, timedelta
+from functools import lru_cache
 
 import httpx
 from sqlalchemy import select
@@ -38,15 +39,34 @@ class GrabError(Exception):
     pass
 
 
+@lru_cache(maxsize=8192)
+def _tokens(text: str) -> frozenset[str]:
+    return frozenset(t for t in normalise(text).split() if t)
+
+
 def tokens(text: str) -> set[str]:
-    return {t for t in normalise(text).split() if t}
+    return set(_tokens(text))
 
 
-def matches_release(candidate: Candidate, artist_name: str, title: str) -> bool:
-    """Every word of the artist and of the release title appears in the candidate title."""
-    have = tokens(candidate.title)
-    want = tokens(artist_name) | tokens(title)
-    return bool(want) and want <= have
+def matches_release(candidate: Candidate, artist_name: str, title: str, other_titles: tuple[str, ...] = ()) -> bool:
+    """Every word of the artist and of the release title appears in the candidate title, and the
+    candidate does not name another release of the artist whose title extends this one
+    ("QALF infinity" is not a match for "QALF")."""
+    have = _tokens(candidate.title)
+    want = _tokens(artist_name) | _tokens(title)
+    if not want or not want <= have:
+        return False
+    mine = _tokens(title)
+    for other in other_titles:
+        o = _tokens(other)
+        if o != mine and mine < o and o <= have:
+            return False
+    return True
+
+
+async def sibling_titles(session: AsyncSession, release: Release) -> tuple[str, ...]:
+    rows = (await session.scalars(select(Release.title).where(Release.artist_id == release.artist_id, Release.kind == "own", Release.id != release.id))).all()
+    return tuple(rows)
 
 
 def evaluate(
@@ -56,13 +76,14 @@ def evaluate(
     profile: str,
     indexers_by_id: dict[int, Indexer],
     active_guids: set[str] | None = None,
+    other_titles: tuple[str, ...] = (),
 ) -> list[Candidate]:
     """Fill ``rejections`` and ``score`` on each candidate and return them best first."""
     accepts = PROFILE_ACCEPTS.get(profile, PROFILE_ACCEPTS["lossless"])
     for c in candidates:
         c.rejections = []
-        if not matches_release(c, artist_name, release.title):
-            c.rejections.append("title does not name this artist and release")
+        if not matches_release(c, artist_name, release.title, other_titles):
+            c.rejections.append("title does not name this artist and release (or names another release of theirs)")
         if c.quality not in accepts:
             c.rejections.append(f"quality {c.quality} below the {profile} profile")
         idx = indexers_by_id.get(c.indexer_id)
@@ -105,7 +126,7 @@ async def search_release(session: AsyncSession, release: Release, interactive: b
     active = set(
         (await session.scalars(select(Download.guid).where(Download.status.in_(("grabbed", "downloading", "completed", "importing"))))).all()
     )
-    return evaluate(candidates, artist.name, release, prefs.quality_profile, {i.id: i for i in idx}, active)
+    return evaluate(candidates, artist.name, release, prefs.quality_profile, {i.id: i for i in idx}, active, await sibling_titles(session, release))
 
 
 async def fetch_payload(url: str) -> tuple[bytes | None, str | None]:
@@ -238,6 +259,9 @@ async def rss_sync(session: AsyncSession) -> dict:
     if not wanted:
         return counters
     artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
+    titles_by_artist: dict[int, list[str]] = {}
+    for r in (await session.scalars(select(Release).where(Release.kind == "own"))).all():
+        titles_by_artist.setdefault(r.artist_id, []).append(r.title)
     results = await asyncio.gather(*(indexers.rss(i) for i in idx), return_exceptions=True)
     items: list[Candidate] = []
     for indexer, res in zip(idx, results, strict=True):
@@ -255,10 +279,11 @@ async def rss_sync(session: AsyncSession) -> dict:
         artist = artists.get(release.artist_id)
         if not artist:
             continue
-        hits = [c for c in items if matches_release(c, artist.name, release.title)]
+        others = tuple(t for t in titles_by_artist.get(release.artist_id, []) if t != release.title)
+        hits = [c for c in items if matches_release(c, artist.name, release.title, others)]
         if not hits:
             continue
-        ranked = evaluate(hits, artist.name, release, prefs.quality_profile, by_id)
+        ranked = evaluate(hits, artist.name, release, prefs.quality_profile, by_id, other_titles=others)
         best = next((c for c in ranked if c.accepted), None)
         if best is None:
             continue

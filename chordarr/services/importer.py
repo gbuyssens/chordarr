@@ -5,6 +5,7 @@ as present. The same code serves manual imports of folders that are already on d
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -99,9 +100,9 @@ def audio_files(src: Path) -> list[Path]:
     if src.is_file():
         return [src] if src.suffix.casefold() in AUDIO_EXT else []
     out = []
-    for dirpath, dirs, files in src.walk():
+    for dirpath, dirs, files in os.walk(src):  # os.walk: Path.walk needs Python 3.12
         dirs[:] = [d for d in dirs if not d.startswith(".") and d.casefold() not in ("sample", "samples")]
-        out.extend(dirpath / f for f in files if Path(f).suffix.casefold() in AUDIO_EXT and not f.startswith("."))
+        out.extend(Path(dirpath) / f for f in files if Path(f).suffix.casefold() in AUDIO_EXT and not f.startswith("."))
     return sorted(out)
 
 
@@ -116,7 +117,9 @@ class _Safe(dict):
 
 
 def format_name(fmt: str, **values) -> str:
-    return sanitize(fmt.format_map(_Safe(values)))
+    name = fmt.format_map(_Safe(values))
+    name = re.sub(r"\s*[\(\[]\s*[\)\]]", "", name)  # "{album} ({year})" without a year → no empty "()"
+    return sanitize(name)
 
 
 def release_folder(artist: Artist, release: Release) -> Path:
@@ -134,6 +137,24 @@ def track_filename(track: TrackInfo, release: Release, artist: Artist, number: i
     return name + track.path.suffix.casefold()
 
 
+EDITION_RE = re.compile(
+    r"^(?:deluxe|edition|version|remaster(?:ed)?|expanded|extended|bonus|anniversary|collector|explicit|clean|"
+    r"reissue|special|limited|digital|edizione|\d{4}|\d+(?:th|e|er|\u00e8me)?|and|&|the|ans|years?)$"
+)
+
+
+def same_album(tagged: str, wanted: str) -> bool:
+    """Equal titles, or the tag adds only edition words ("qalf" vs "qalf deluxe edition 2021").
+
+    A tag that adds a real word ("qalf" vs "qalf infinity") is another release.
+    """
+    if tagged == wanted:
+        return True
+    if tagged.startswith(wanted + " "):
+        return all(EDITION_RE.match(w) for w in tagged[len(wanted) :].split())
+    return False
+
+
 def check_match(tracks: list[TrackInfo], release: Release, artist: Artist) -> str | None:
     """None when the tags fit the release, else a reason."""
     rg_ids = {t.rg_mbid for t in tracks if t.rg_mbid}
@@ -143,7 +164,7 @@ def check_match(tracks: list[TrackInfo], release: Release, artist: Artist) -> st
         return f"files are tagged with another release group ({', '.join(sorted(rg_ids))[:80]})"
     want_album = normalise(release.title)
     albums = {normalise(t.album) for t in tracks if t.album}
-    if want_album and any(a == want_album or want_album in a or a in want_album for a in albums if a):
+    if want_album and any(same_album(a, want_album) for a in albums if a):
         return None
     artist_tokens = set(normalise(artist.name).split())
     credited = " ".join(t.artist + " " + t.album_artist for t in tracks)
@@ -189,44 +210,12 @@ async def import_folder(
     force: bool = False,
 ) -> ImportResult:
     artist = artist or await session.get(Artist, release.artist_id)
+    if not str(src) or str(src) == ".":
+        raise ImportError_("no path to import from (the download client reported none)")
     if not src.exists():
         raise ImportError_(f"{src} does not exist (is a remote path mapping missing?)")
-    files = audio_files(src)
-    if not files:
-        raise ImportError_(f"no audio file under {src}")
-    tracks = [read_tags(p) for p in files]
-    result = ImportResult(destination=release_folder(artist, release))
-    reason = check_match(tracks, release, artist)
-    if reason and not force:
-        raise ImportError_(reason)
-    if reason:
-        result.warnings.append(reason)
-
-    tracks.sort(key=lambda t: (t.disc or 1, t.track or 9999, t.path.name))
-    discs = {t.disc or 1 for t in tracks}
-    multi_disc = len(discs) > 1
-    mode = mode or effective_mode(None)
-    # Tag numbers are used when every track has one and they are unique per disc; otherwise
-    # files are numbered in order.
-    numbered = {(t.disc or 1, t.track) for t in tracks if t.track}
-    use_tags = len(numbered) == len(tracks)
-    seen: set[str] = set()
-    for i, t in enumerate(tracks, start=1):
-        number = t.track if use_tags else i
-        name = track_filename(t, release, artist, number, multi_disc)
-        if name in seen:
-            name = f"{Path(name).stem} ({i}){Path(name).suffix}"
-        seen.add(name)
-        dst = result.destination / name
-        outcome = transfer(t.path, dst, mode)
-        if outcome == "skipped":
-            result.skipped += 1
-        result.files.append(dst)
-    root = src if src.is_dir() else src.parent
-    for img in sorted(root.iterdir()) if root.is_dir() else []:
-        if img.is_file() and img.suffix.casefold() in IMAGE_EXT:
-            transfer(img, result.destination / f"cover{img.suffix.casefold()}", "copy" if mode == "hardlink" else mode)
-            break
+    # Walking, tag reading and copying are blocking I/O: keep them off the event loop.
+    result = await asyncio.to_thread(_import_files, src, release, artist, mode or effective_mode(None), force)
 
     release.path = str(result.destination)
     release.file_count = len(result.files)
@@ -248,12 +237,54 @@ async def import_folder(
     return result
 
 
-async def guess_release(session: AsyncSession, src: Path) -> Release | None:
-    """Which tracked release does this folder hold? By release-group tag, then by names."""
+def _import_files(src: Path, release: Release, artist: Artist, mode: str, force: bool) -> ImportResult:
     files = audio_files(src)
     if not files:
+        raise ImportError_(f"no audio file under {src}")
+    tracks = [read_tags(p) for p in files]
+    result = ImportResult(destination=release_folder(artist, release))
+    reason = check_match(tracks, release, artist)
+    if reason and not force:
+        raise ImportError_(reason)
+    if reason:
+        result.warnings.append(reason)
+
+    tracks.sort(key=lambda t: (t.disc or 1, t.track or 9999, t.path.name))
+    discs = {t.disc or 1 for t in tracks}
+    multi_disc = len(discs) > 1
+    # Tag numbers are used when every track has one and they are unique per disc; otherwise
+    # files are numbered in order.
+    numbered = {(t.disc or 1, t.track) for t in tracks if t.track}
+    use_tags = len(numbered) == len(tracks)
+    seen: set[str] = set()
+    for i, t in enumerate(tracks, start=1):
+        number = t.track if use_tags else i
+        name = track_filename(t, release, artist, number, multi_disc)
+        if name in seen:
+            name = f"{Path(name).stem} ({i}){Path(name).suffix}"
+        seen.add(name)
+        dst = result.destination / name
+        outcome = transfer(t.path, dst, mode)
+        if outcome == "skipped":
+            result.skipped += 1
+        result.files.append(dst)
+    # Cover: only from the download's own folder (a single-file torrent has none).
+    if src.is_dir():
+        for img in sorted(src.iterdir()):
+            if img.is_file() and img.suffix.casefold() in IMAGE_EXT:
+                transfer(img, result.destination / f"cover{img.suffix.casefold()}", "copy" if mode == "hardlink" else mode)
+                break
+    return result
+
+
+async def guess_release(session: AsyncSession, src: Path) -> Release | None:
+    """Which tracked release does this folder hold? By release-group tag, then by names."""
+    if not str(src) or str(src) == ".":
         return None
-    tracks = [read_tags(p) for p in files[:5]]
+    files = await asyncio.to_thread(audio_files, src)
+    if not files:
+        return None
+    tracks = await asyncio.to_thread(lambda: [read_tags(p) for p in files[:5]])
     for rg in {t.rg_mbid for t in tracks if t.rg_mbid}:
         rel = await session.scalar(select(Release).where(Release.mbid == rg).order_by(Release.kind.desc()))
         if rel:
@@ -337,8 +368,12 @@ async def _import_download(session: AsyncSession, d: Download, cfg: DownloadClie
     if d.release is None:
         d.status, d.message = "warning", "completed, but the release it was grabbed for no longer exists"
         return
+    if not item.path:
+        d.status, d.message = "warning", "completed, but the download client reported no path; import it by hand"
+        add_event(session, "import_failed", f"Import of {d.title} needs attention", d.message, release=d.release)
+        return
     d.status = "importing"
-    local = downloadclients.map_path(cfg, item.path or "")
+    local = downloadclients.map_path(cfg, item.path)
     d.output_path = str(local)
     try:
         result = await import_folder(session, local, d.release, mode=effective_mode(d.protocol))
