@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chordarr import __version__
+from chordarr.api import lidarr_compat
 from chordarr.api.auth import require_api_key
 from chordarr.config import settings
 from chordarr.db import get_session
@@ -134,14 +135,8 @@ def album_payload(r: Release, artist: Artist | None = None, include_artist: bool
 
 
 def paged(records: list, page: int, page_size: int, sort_key: str, sort_dir: str, total: int | None = None) -> dict:
-    return {
-        "page": page,
-        "pageSize": page_size,
-        "sortKey": sort_key,
-        "sortDirection": sort_dir,
-        "totalRecords": total if total is not None else len(records),
-        "records": records,
-    }
+    """Lidarr page envelope around an already-sliced page (see lidarr_compat.paged for the slicing one)."""
+    return lidarr_compat.page_envelope(records, page, page_size, sort_key, sort_dir, total)
 
 
 # --- albums -----------------------------------------------------------------------------
@@ -230,7 +225,14 @@ async def wanted_missing(
     total = len(rows)
     chunk = rows[(page - 1) * pageSize : page * pageSize]
     artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
-    return paged([album_payload(r, artists.get(r.artist_id), include_artist=True) for r in chunk], page, pageSize, sortKey, sortDirection, total)
+    payloads = {aid: artist_payload(artists[aid]) for aid in {r.artist_id for r in chunk} if aid in artists}
+    records = []
+    for r in chunk:
+        rec = album_payload(r, None, include_artist=False)
+        if r.artist_id in payloads:
+            rec["artist"] = payloads[r.artist_id]
+        records.append(rec)
+    return paged(records, page, pageSize, sortKey, sortDirection, total)
 
 
 @router.get("/wanted/cutoff")
@@ -241,9 +243,12 @@ async def wanted_cutoff(page: int = 1, pageSize: int = 50, sortKey: str = "relea
 # --- history ----------------------------------------------------------------------------
 
 
-def _history_record(e: Event, artists: dict[int, Artist], releases: dict[int, Release]) -> dict:
+def _history_record(e: Event, artists: dict[int, Artist], releases: dict[int, Release], cache: dict[int, dict] | None = None) -> dict:
     rel = releases.get(e.release_id) if e.release_id else None
     art = artists.get(e.artist_id) if e.artist_id else None
+    cache = cache if cache is not None else {}
+    if art is not None and art.id not in cache:
+        cache[art.id] = artist_payload(art)
     return {
         "id": e.id,
         "albumId": e.release_id or 0,
@@ -257,7 +262,7 @@ def _history_record(e: Event, artists: dict[int, Artist], releases: dict[int, Re
         "eventType": HISTORY_EVENT_TYPES.get(e.type, e.type),
         "data": {k: str(v) for k, v in (e.payload or {}).items() if not isinstance(v, (dict, list))} | {"message": e.body},
         "album": album_payload(rel, None, include_artist=False) if rel else None,
-        "artist": artist_payload(art) if art else None,
+        "artist": cache.get(art.id) if art else None,
     }
 
 
@@ -284,17 +289,20 @@ async def history(
     chunk = rows[(page - 1) * pageSize : page * pageSize]
     artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
     releases = {r.id: r for r in (await session.scalars(select(Release).where(Release.id.in_([e.release_id for e in chunk if e.release_id] or [0])))).all()}
-    return paged([_history_record(e, artists, releases) for e in chunk], page, pageSize, sortKey, sortDirection, total)
+    cache: dict[int, dict] = {}
+    return paged([_history_record(e, artists, releases, cache) for e in chunk], page, pageSize, sortKey, sortDirection, total)
 
 
 @router.get("/history/since")
 async def history_since(date: datetime, eventType: str | None = None, session: AsyncSession = Depends(get_session)):  # noqa: A002
-    rows = (await session.scalars(select(Event).where(Event.created_at >= date.replace(tzinfo=None)).order_by(Event.id))).all()
+    since = date.astimezone(UTC).replace(tzinfo=None) if date.tzinfo else date
+    rows = (await session.scalars(select(Event).where(Event.created_at >= since).order_by(Event.id))).all()
     if eventType:
         rows = [e for e in rows if HISTORY_EVENT_TYPES.get(e.type, e.type) == eventType or e.type == eventType]
     artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
     releases = {r.id: r for r in (await session.scalars(select(Release))).all()}
-    return [_history_record(e, artists, releases) for e in rows]
+    cache: dict[int, dict] = {}
+    return [_history_record(e, artists, releases, cache) for e in rows]
 
 
 # --- commands ---------------------------------------------------------------------------
@@ -348,8 +356,9 @@ async def get_command(command_id: int):
     cmd = _commands.get(command_id)
     if not cmd:
         raise HTTPException(404)
-    cmd = {**cmd, "status": "completed" if cmd["name"].replace("Artist", "") not in scheduler.status()["running"] else "started"}
-    return cmd
+    job = COMMANDS.get(cmd["name"])
+    running = job in scheduler.status()["running"]
+    return {**cmd, "status": "started" if running else cmd["status"] if cmd["status"] == "failed" else "completed"}
 
 
 @router.post("/command", status_code=201)

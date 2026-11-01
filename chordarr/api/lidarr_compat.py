@@ -357,5 +357,11 @@ def queue_record(d, indexer_name: str | None = None, client_name: str | None = N
     }
 
 
+def page_envelope(records: list, page: int, page_size: int, sort_key: str, sort_dir: str = "descending", total: int | None = None) -> dict:
+    """Lidarr's paged resource shape around an already-sliced list."""
+    return {"page": page, "pageSize": page_size, "sortKey": sort_key, "sortDirection": sort_dir, "totalRecords": total if total is not None else len(records), "records": records}
+
+
 def paged(records: list[dict], page: int = 1, page_size: int = 50, sort_key: str = "added") -> dict:
-    return {"page": page, "pageSize": page_size, "sortKey": sort_key, "sortDirection": "descending", "totalRecords": len(records), "records": records[(page - 1) * page_size : page * page_size]}
+    """Slice ``records`` to one page and wrap it."""
+    return page_envelope(records[(page - 1) * page_size : page * page_size], page, page_size, sort_key, total=len(records))

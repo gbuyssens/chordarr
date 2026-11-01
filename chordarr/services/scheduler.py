@@ -101,6 +101,14 @@ async def scheduled_backup() -> None:
     await backup.create("scheduled")
 
 
+def backup_due() -> bool:
+    """Based on the newest scheduled backup on disk, so a restart does not write one."""
+    from chordarr.services import backup
+
+    newest = backup.newest("scheduled")
+    return newest is None or utcnow() - newest > timedelta(days=settings.backup_interval_days)
+
+
 async def dispatch() -> None:
     async with session_scope() as session:
         n = await notify.dispatch_pending(session)
@@ -145,8 +153,7 @@ async def loop() -> None:
             if _due("queue", timedelta(seconds=settings.queue_poll_seconds)):
                 await run_job("queue", process_queue)
             await run_job("notify", dispatch)
-            last_backup = state["last"].get("backup")
-            if settings.backup_interval_days and (last_backup is None or utcnow() - last_backup > timedelta(days=settings.backup_interval_days)):
+            if settings.backup_interval_days and backup_due():
                 await run_job("backup", scheduled_backup)
         except Exception:
             log.exception("scheduler tick failed")

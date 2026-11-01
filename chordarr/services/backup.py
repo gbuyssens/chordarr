@@ -11,7 +11,8 @@ import asyncio
 import logging
 import sqlite3
 import zipfile
-from datetime import datetime
+import zlib
+from datetime import UTC, datetime
 from pathlib import Path
 
 from chordarr.config import settings
@@ -74,9 +75,18 @@ def list_backups() -> list[dict]:
             continue
         for p in folder.glob("*.zip"):
             st = p.stat()
-            out.append({"id": abs(hash(p.name)) % 10**9, "name": p.name, "path": f"/backup/{kind}/{p.name}", "type": kind, "size": st.st_size, "time": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
+            out.append({"id": zlib.crc32(p.name.encode()), "name": p.name, "path": f"/backup/{kind}/{p.name}", "type": kind, "size": st.st_size, "time": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
     out.sort(key=lambda b: b["time"], reverse=True)
     return out
+
+
+def newest(kind: str) -> datetime | None:
+    """Naive UTC time of the newest backup of that kind, or None."""
+    folder = backup_dir(kind)
+    files = list(folder.glob("*.zip")) if folder.is_dir() else []
+    if not files:
+        return None
+    return datetime.fromtimestamp(max(p.stat().st_mtime for p in files), UTC).replace(tzinfo=None)
 
 
 def find(kind: str, name: str) -> Path | None:

@@ -125,6 +125,9 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
     become events (and notifications): the first fetch of a new artist is not news.
     """
     counters = {"own_new": 0, "appearance_new": 0, "updated": 0}
+    # The first fetch of an artist (added without refresh, e.g. a Lidarr import) is a
+    # catalogue load, not news: never announce it, whatever the caller asked.
+    announce = announce and artist.last_refresh is not None
     try:
         info = await mb.get_artist(artist.mbid)
         picture = await _fetch_picture(artist, info)
