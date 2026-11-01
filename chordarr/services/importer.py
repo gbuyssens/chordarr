@@ -198,7 +198,7 @@ def transfer(src: Path, dst: Path, mode: str) -> str:
 def effective_mode(protocol: str | None) -> str:
     if settings.import_mode in ("hardlink", "copy", "move"):
         return settings.import_mode
-    return "move" if protocol == "usenet" else "hardlink"
+    return "move" if protocol in ("usenet", "direct") else "hardlink"
 
 
 async def import_folder(

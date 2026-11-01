@@ -191,6 +191,8 @@ CLIENT_IMPLEMENTATIONS = {
     # Lidarr implementation → (Chordarr implementation, configContract, protocol, field names)
     "QBittorrent": ("qbittorrent", "QBittorrentSettings", "torrent", ["host", "port", "useSsl", "urlBase", "username", "password", "musicCategory"]),
     "Sabnzbd": ("sabnzbd", "SabnzbdSettings", "usenet", ["host", "port", "useSsl", "urlBase", "apiKey", "username", "password", "musicCategory"]),
+    # Chordarr extra: direct sources through streamrip (not in Lidarr)
+    "Streamrip": ("streamrip", "StreamripSettings", "direct", ["downloadFolder", "quality", "sources", "qobuzEmail", "qobuzPassword", "deezerArl"]),
 }
 _CLIENT_BY_INTERNAL = {v[0]: k for k, v in CLIENT_IMPLEMENTATIONS.items()}
 _CLIENT_FIELD_DEFS = {
@@ -202,7 +204,14 @@ _CLIENT_FIELD_DEFS = {
     "password": {"label": "Password", "type": "password", "privacy": "password"},
     "apiKey": {"label": "API Key", "type": "textbox", "privacy": "apiKey"},
     "musicCategory": {"label": "Category", "type": "textbox", "value": "chordarr"},
+    "downloadFolder": {"label": "Download Folder", "type": "textbox"},
+    "quality": {"label": "Max Quality (0-4)", "type": "number", "value": 3},
+    "sources": {"label": "Sources", "type": "textbox", "value": "qobuz,deezer,tidal"},
+    "qobuzEmail": {"label": "Qobuz Email", "type": "textbox"},
+    "qobuzPassword": {"label": "Qobuz Password", "type": "password", "privacy": "password"},
+    "deezerArl": {"label": "Deezer ARL", "type": "password", "privacy": "password"},
 }
+_STREAMRIP_FIELDS = {"downloadFolder": "download_folder", "quality": "quality", "sources": "sources", "qobuzEmail": "qobuz_email", "qobuzPassword": "qobuz_password", "deezerArl": "deezer_arl"}
 
 
 def split_url(url: str) -> dict:
@@ -247,6 +256,16 @@ def apply_client(client, body: dict):
         if key in body:
             setattr(client, "remote_path" if key == "remotePath" else "local_path", str(body[key] or ""))
     fields = {f.get("name"): f.get("value") for f in body.get("fields") or []}
+    if internal == "streamrip":
+        from chordarr.services.direct import md5_password
+
+        extra = dict(client.settings or {})
+        for name, key in _STREAMRIP_FIELDS.items():
+            if name in fields and fields[name] not in (None, MASK):
+                extra[key] = md5_password(str(fields[name])) if key == "qobuz_password" else fields[name]
+        client.settings = extra
+        client.url = client.url or "streamrip://local"
+        return client
     current = split_url(client.url) if client.url else {"host": "", "port": None, "useSsl": False, "urlBase": ""}
     host = fields.get("host", current["host"])
     port = fields.get("port", current["port"])
@@ -274,6 +293,15 @@ def apply_client(client, body: dict):
 def client_to_resource(client) -> dict:
     impl = _CLIENT_BY_INTERNAL.get(client.implementation, "QBittorrent")
     _internal, contract, protocol, names = CLIENT_IMPLEMENTATIONS[impl]
+    if client.implementation == "streamrip":
+        st = client.settings or {}
+        fields = []
+        for i, (name, key) in enumerate(_STREAMRIP_FIELDS.items()):
+            value = st.get(key)
+            if key in ("qobuz_password", "deezer_arl") and value:
+                value = MASK
+            fields.append({"order": i, "name": name, "advanced": False, "privacy": "normal", **{k: v for k, v in _CLIENT_FIELD_DEFS[name].items() if k != "value"}, "value": value})
+        return {"id": client.id, "name": client.name, "enable": client.enabled, "protocol": protocol, "priority": client.priority, "removeCompletedDownloads": True, "removeFailedDownloads": True, "implementationName": impl, "implementation": impl, "configContract": contract, "infoLink": "https://github.com/nathom/streamrip", "fields": fields, "tags": [], "remotePath": "", "localPath": "", "lastError": client.last_error}
     parts = split_url(client.url)
     values = {
         "host": parts["host"],

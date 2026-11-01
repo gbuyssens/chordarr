@@ -8,6 +8,29 @@
 <input type="hidden" name="implementation" value="{{ c.implementation }}">
 {% call f.group('Name') %}{{ f.text('name', c.name) }}{% endcall %}
 {% call f.group('Enable', size='medium') %}{{ f.check('enabled', c.enabled) }}{% endcall %}
+{% if c.implementation == 'streamrip' %}
+{% set st = c.settings or {} %}
+{% if not streamrip_available %}<div class="alert warning">streamrip is not installed in this environment: <code>pip install 'chordarr[streamrip]'</code> then restart.</div>{% endif %}
+{% call f.group('Download Folder', help='Where streamrip writes albums before Chordarr imports them (moved into the library afterwards). Empty: under the data directory.') %}{{ f.text('download_folder', st.get('download_folder',''), '/data/downloads/streamrip') }}{% endcall %}
+{% call f.group('Max Quality', help='0 128 kbps · 1 320 kbps · 2 CD 16/44.1 · 3 24/96 · 4 24/192. Each source is capped at what it offers and what the account allows.') %}{{ f.select('quality', [(0,'0 - 128 kbps'),(1,'1 - 320 kbps'),(2,'2 - CD 16 bit / 44.1 kHz'),(3,'3 - 24 bit / 96 kHz'),(4,'4 - 24 bit / 192 kHz')], st.get('quality', 3)) }}{% endcall %}
+{% call f.group('Sources', help='Comma separated, in order of preference: qobuz, deezer, tidal. Only sources with credentials are used.') %}{{ f.text('sources', st.get('sources','qobuz,deezer,tidal')) }}{% endcall %}
+{% call f.fieldset('Qobuz', small=True) %}
+{% call f.group('Email', help='Qobuz account email. A paid subscription is required to download.') %}{{ f.text('qobuz_email', st.get('qobuz_email','')) }}{% endcall %}
+{% call f.group('Password', help='Stored as the md5 digest streamrip expects, never in clear') %}{{ f.text('qobuz_password', '********' if st.get('qobuz_password') else '', type='password') }}{% endcall %}
+{% endcall %}
+{% call f.fieldset('Deezer', small=True) %}
+{% call f.group('ARL', help='The arl cookie of a logged-in Deezer session (see streamrip\'s wiki). Premium gives FLAC, free gives 320 kbps.', link='https://github.com/nathom/streamrip/wiki/Finding-Your-Deezer-ARL-Cookie') %}{{ f.text('deezer_arl', '********' if st.get('deezer_arl') else '', type='password') }}{% endcall %}
+{% endcall %}
+{% call f.fieldset('Tidal', small=True) %}
+<div class="help" style="margin:-10px 0 14px">Tidal uses a device login: run <code>rip config --tidal</code> once with the Chordarr user (or any machine), then paste the values from its config.toml.</div>
+{% call f.group('User Id', advanced=True) %}{{ f.text('tidal_user_id', st.get('tidal_user_id','')) }}{% endcall %}
+{% call f.group('Country Code', advanced=True) %}{{ f.text('tidal_country_code', st.get('tidal_country_code','')) }}{% endcall %}
+{% call f.group('Access Token', advanced=True) %}{{ f.text('tidal_access_token', '********' if st.get('tidal_access_token') else '', type='password') }}{% endcall %}
+{% call f.group('Refresh Token', advanced=True) %}{{ f.text('tidal_refresh_token', '********' if st.get('tidal_refresh_token') else '', type='password') }}{% endcall %}
+{% call f.group('Token Expiry', help='Unix timestamp', advanced=True) %}{{ f.text('tidal_token_expiry', st.get('tidal_token_expiry','')) }}{% endcall %}
+{% endcall %}
+{% call f.group('Client Priority', help='Download Client Priority from 1 (Highest) to 50 (Lowest). Direct sources also get a bonus over torrents of equal quality when choosing a result.', advanced=True) %}{{ f.number('priority', c.priority, 1, 50) }}{% endcall %}
+{% else %}
 {% call f.group('Host') %}{{ f.text('host', parts.host, 'localhost') }}{% endcall %}
 {% call f.group('Port') %}{{ f.number('port', parts.port, 1, 65535) }}{% endcall %}
 {% call f.group('Use SSL', help='Use secure connection when connecting to ' ~ label, size='medium') %}{{ f.check('use_ssl', parts.useSsl) }}{% endcall %}
@@ -23,6 +46,7 @@
 {% call f.group('Remove Completed', help='Remove imported downloads from download client history (usenet downloads are always removed)', size='medium', advanced=True) %}{{ f.check('remove_completed', c.remove_completed) }}{% endcall %}
 {% call f.group('Remote Path', help='Root path to the directory that the Download Client accesses, when it runs on another machine or container', advanced=True) %}{{ f.text('remote_path', c.remote_path, '/downloads') }}{% endcall %}
 {% call f.group('Local Path', help='Path that Chordarr should use to access the remote path locally', advanced=True) %}{{ f.text('local_path', c.local_path, '/mnt/downloads') }}{% endcall %}
+{% endif %}
 <div class="form-actions">
   {% if not is_new %}<button class="btn danger" type="submit" formaction="{{ base }}/settings/downloadclients/{{ c.id }}/delete" formnovalidate onclick="return confirm('Are you sure you want to delete the download client \'{{ c.name|e }}\'?')">Delete</button>{% endif %}
   <span class="spacer"></span>

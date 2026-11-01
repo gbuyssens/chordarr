@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Settings laid out like Lidarr: index page, FieldSets, label/input/help rows, provider
+  cards with an add card, Add pages listing implementations, edit pages with Delete /
+  Test / Save, Advanced Settings toggle. Naming, import mode, intervals, log level and
+  backup interval are saved from the UI.
+- Direct sources through streamrip (optional extra): Qobuz, Deezer and Tidal with your
+  own accounts as a download client of type *streamrip*; results appear in Search as
+  `direct`, preferred over torrents of equal quality, imported like any download.
+
 ## 0.2.0 — 2026-11-01
 
 Acquisition and the rest of Lidarr's surface.

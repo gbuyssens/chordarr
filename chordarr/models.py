@@ -263,7 +263,11 @@ class DownloadClient(Base):
 
     @property
     def protocol(self) -> str:
-        return "usenet" if self.implementation == "sabnzbd" else "torrent"
+        if self.implementation == "sabnzbd":
+            return "usenet"
+        if self.implementation == "streamrip":
+            return "direct"
+        return "torrent"
 
 
 class Download(Base):

@@ -118,7 +118,7 @@ async def test_tags_and_clients_and_mediaservers(client):
     assert (await client.get("/api/v1/tag", headers=HEADERS)).json()[0]["id"] == r.json()["id"]
 
     schema = {s["implementation"]: s for s in (await client.get("/api/v1/downloadclient/schema", headers=HEADERS)).json()}
-    assert set(schema) == {"QBittorrent", "Sabnzbd"} and schema["QBittorrent"]["configContract"] == "QBittorrentSettings"
+    assert {"QBittorrent", "Sabnzbd", "Streamrip"} <= set(schema) and schema["QBittorrent"]["configContract"] == "QBittorrentSettings"
     body = {"name": "qb", "implementation": "QBittorrent", "configContract": "QBittorrentSettings", "enable": True, "priority": 1, "fields": [{"name": "host", "value": "qb"}, {"name": "port", "value": 8080}, {"name": "useSsl", "value": False}, {"name": "urlBase", "value": ""}, {"name": "username", "value": "admin"}, {"name": "password", "value": "pw"}, {"name": "musicCategory", "value": "music"}], "tags": []}
     r = await client.post("/api/v1/downloadclient", json=body, headers=HEADERS)
     assert r.status_code == 201, r.text

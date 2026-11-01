@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from chordarr.config import settings
 from chordarr.models import Artist, Download, DownloadClient, Indexer, Release, utcnow
-from chordarr.services import downloadclients, indexers
+from chordarr.services import direct, downloadclients, indexers
 from chordarr.services.events import add_event
 from chordarr.services.indexers import Candidate
 from chordarr.services.library import normalise
@@ -119,6 +119,7 @@ def evaluate(
         extra_words = len(tokens(c.title) - tokens(artist_name) - tokens(release.title))
         c.score = (
             QUALITY_RANK.get(c.quality, 0) * 10_000
+            + (2_000 if c.protocol == "direct" else 0)  # no seeding, no indexer luck: preferred at equal quality
             + min(c.seeders or 0, 200) * 20
             + (50 - min(idx.priority if idx else 25, 50)) * 10
             - min(extra_words, 20)
@@ -132,15 +133,33 @@ async def _usable_indexers(session: AsyncSession, interactive: bool) -> list[Ind
     return [i for i in rows if getattr(i, flag)]
 
 
+async def _direct_clients(session: AsyncSession) -> list[DownloadClient]:
+    rows = (await session.scalars(select(DownloadClient).where(DownloadClient.enabled.is_(True)).order_by(DownloadClient.priority, DownloadClient.id))).all()
+    return [c for c in rows if c.protocol == "direct"]
+
+
 async def search_release(session: AsyncSession, release: Release, interactive: bool = True) -> list[Candidate]:
-    """Query every usable indexer at once, ranked for this release."""
+    """Query every usable indexer and direct source at once, ranked for this release."""
     artist = await session.get(Artist, release.artist_id)
     idx = await _usable_indexers(session, interactive)
-    if not artist or not idx:
+    directs = await _direct_clients(session)
+    if not artist or (not idx and not directs):
         return []
     prefs = await get_prefs(session)
-    results = await asyncio.gather(*(indexers.search(i, artist.name, release.title, release.mbid) for i in idx), return_exceptions=True)
+    results = await asyncio.gather(
+        *(indexers.search(i, artist.name, release.title, release.mbid) for i in idx),
+        *(direct.search(c, artist.name, release.title) for c in directs),
+        return_exceptions=True,
+    )
     candidates: list[Candidate] = []
+    direct_results, results = results[len(idx) :], results[: len(idx)]
+    for client, res in zip(directs, direct_results, strict=True):
+        if isinstance(res, BaseException):
+            client.last_error = f"{utcnow():%Y-%m-%d %H:%M} {res}"[:500]
+            log.warning("direct search on %s failed: %s", client.name, res)
+            continue
+        client.last_error = None
+        candidates.extend(res)
     for indexer, res in zip(idx, results, strict=True):
         if isinstance(res, BaseException):
             indexer.last_error = f"{utcnow():%Y-%m-%d %H:%M} {res}"[:500]
@@ -184,11 +203,17 @@ async def pick_client(session: AsyncSession, protocol: str, preferred_id: int | 
 
 async def grab(session: AsyncSession, release: Release, candidate: Candidate, manual: bool = False) -> Download:
     """Send one candidate to a download client and put it in the queue."""
-    indexer = await session.get(Indexer, candidate.indexer_id)
-    client_cfg = await pick_client(session, candidate.protocol, indexer.download_client_id if indexer else None)
     artist = await session.get(Artist, release.artist_id)
-
-    payload, link = await fetch_payload(candidate.download_url)
+    if candidate.protocol == "direct":
+        client_id, _source, _album = direct.parse_ref(candidate.download_url)
+        client_cfg = await session.get(DownloadClient, client_id)
+        if client_cfg is None or not client_cfg.enabled:
+            raise GrabError("the direct source for this result is gone")
+        payload, link = None, candidate.download_url
+    else:
+        indexer = await session.get(Indexer, candidate.indexer_id)
+        client_cfg = await pick_client(session, candidate.protocol, indexer.download_client_id if indexer else None)
+        payload, link = await fetch_payload(candidate.download_url)
     if payload is not None and candidate.protocol == "torrent":
         try:
             downloadclients.torrent_info(payload)
@@ -198,7 +223,7 @@ async def grab(session: AsyncSession, release: Release, candidate: Candidate, ma
         raise GrabError("the indexer did not return an NZB file")
     try:
         async with downloadclients.make_client(client_cfg) as dc:
-            kw = {"torrent": payload} if candidate.protocol == "torrent" else {"nzb": payload}
+            kw = {"torrent": payload} if candidate.protocol == "torrent" else ({"nzb": payload} if candidate.protocol == "usenet" else {})
             client_id = await dc.add(candidate.title, url=link, **kw)
         client_cfg.last_error = None
     except Exception as exc:
@@ -252,7 +277,7 @@ async def search_wanted(session: AsyncSession) -> dict:
     """Automatic search for wanted releases; grabs the best candidate when auto_grab is on."""
     counters = {"searched": 0, "found": 0, "grabbed": 0}
     prefs = await get_prefs(session)
-    if not await _usable_indexers(session, interactive=False):
+    if not await _usable_indexers(session, interactive=False) and not await _direct_clients(session):
         return counters
     for release in await wanted_releases(session):
         counters["searched"] += 1

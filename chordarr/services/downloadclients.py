@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 CLIENT_TYPES = {
     "qbittorrent": {"label": "qBittorrent", "protocol": "torrent", "fields": ["url", "username", "password", "category"]},
     "sabnzbd": {"label": "SABnzbd", "protocol": "usenet", "fields": ["url", "api_key", "category"]},
+    "streamrip": {"label": "streamrip (Qobuz, Deezer, Tidal)", "protocol": "direct", "fields": ["download_folder", "quality", "sources", "qobuz_email", "qobuz_password", "deezer_arl"]},
 }
 
 
@@ -316,11 +317,15 @@ class SABnzbd:
         await self._api("history", name="delete", value=client_id, del_files=1 if delete_files else 0)
 
 
-def make_client(client: DownloadClient) -> QBittorrent | SABnzbd:
+def make_client(client: DownloadClient):
     if client.implementation == "qbittorrent":
         return QBittorrent(client)
     if client.implementation == "sabnzbd":
         return SABnzbd(client)
+    if client.implementation == "streamrip":
+        from chordarr.services.direct import StreamripClient
+
+        return StreamripClient(client)
     raise ClientError(f"unknown download client type {client.implementation}")
 
 

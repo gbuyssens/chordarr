@@ -4,7 +4,7 @@ FROM python:3.13-slim AS build
 WORKDIR /src
 COPY pyproject.toml README.md LICENSE ./
 COPY chordarr ./chordarr
-RUN pip install --no-cache-dir --prefix=/install .
+RUN pip install --no-cache-dir --prefix=/install ".[streamrip]"
 
 FROM python:3.13-slim
 LABEL org.opencontainers.image.source="https://github.com/gbuyssens/chordarr" \

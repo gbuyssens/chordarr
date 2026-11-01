@@ -30,7 +30,7 @@ if [[ "$SRC" != "$PREFIX" ]]; then
 fi
 [[ -d "$PREFIX/.venv" ]] || python3 -m venv "$PREFIX/.venv"
 "$PREFIX/.venv/bin/pip" install --quiet --upgrade pip
-"$PREFIX/.venv/bin/pip" install --quiet "$PREFIX"
+"$PREFIX/.venv/bin/pip" install --quiet "$PREFIX[streamrip]"
 chown -R "$USER_NAME:$GROUP_NAME" "$DATA_DIR"
 chown -R root:"$GROUP_NAME" "$PREFIX"
 

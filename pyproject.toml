@@ -30,7 +30,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+streamrip = ["streamrip>=2.1"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "streamrip>=2.1"]  # streamrip pins an old pytest-asyncio; reinstall >=0.23 after it
 
 [project.scripts]
 chordarr = "chordarr.__main__:main"

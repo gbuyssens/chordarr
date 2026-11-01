@@ -778,7 +778,8 @@ async def downloadclient_options(request: Request, session: AsyncSession = Depen
 
 @protected.get("/settings/downloadclients/add", response_class=HTMLResponse)
 async def downloadclient_add(request: Request):
-    presets = [(k, d["label"], f"{d['protocol'].capitalize()} client") for k, d in downloadclients.CLIENT_TYPES.items()]
+    descriptions = {"torrent": "Torrent client", "usenet": "Usenet client", "direct": "Direct source: downloads albums from Qobuz, Deezer or Tidal with your own accounts (streamrip)"}
+    presets = [(k, d["label"], descriptions.get(d["protocol"], d["protocol"])) for k, d in downloadclients.CLIENT_TYPES.items()]
     return render(request, "settings/provider_add.html", kind="downloadclient", title="Add Download Client", presets=presets, new_url=url("/settings/downloadclients/new"), hint="")
 
 
@@ -786,16 +787,20 @@ async def downloadclient_add(request: Request):
 async def downloadclient_new(request: Request, implementation: str = "qbittorrent"):
     if implementation not in downloadclients.CLIENT_TYPES:
         raise HTTPException(404)
-    c = DownloadClient(name=downloadclients.CLIENT_TYPES[implementation]["label"], implementation=implementation, url="http://localhost:8080", category="chordarr")
-    return render(request, "settings/downloadclient_edit.html", c=c, is_new=True, parts=lidarr_compat.split_url(c.url))
+    from chordarr.services import direct
+
+    c = DownloadClient(name=downloadclients.CLIENT_TYPES[implementation]["label"], implementation=implementation, url="http://localhost:8080" if implementation != "streamrip" else "streamrip://local", category="chordarr", settings={})
+    return render(request, "settings/downloadclient_edit.html", c=c, is_new=True, parts=lidarr_compat.split_url(c.url), streamrip_available=direct.available())
 
 
 @protected.get("/settings/downloadclients/{client_id}", response_class=HTMLResponse)
 async def downloadclient_edit(request: Request, client_id: int, session: AsyncSession = Depends(get_session)):
+    from chordarr.services import direct
+
     c = await session.get(DownloadClient, client_id)
     if not c:
         raise HTTPException(404)
-    return render(request, "settings/downloadclient_edit.html", c=c, is_new=False, parts=lidarr_compat.split_url(c.url))
+    return render(request, "settings/downloadclient_edit.html", c=c, is_new=False, parts=lidarr_compat.split_url(c.url), streamrip_available=direct.available())
 
 
 @protected.post("/settings/downloadclients/save")
@@ -807,11 +812,32 @@ async def downloadclient_save(request: Request, session: AsyncSession = Depends(
         raise HTTPException(404)
     if c.implementation not in downloadclients.CLIENT_TYPES:
         raise HTTPException(400)
+    c.name = str(form.get("name") or c.name)
+    c.enabled = _form_bool(form, "enabled")
+    c.priority = int(form.get("priority") or 1)
+    if c.implementation == "streamrip":
+        from chordarr.services import direct
+
+        st = dict(c.settings or {})
+        for key in direct.FIELDS:
+            v = form.get(key)
+            if v is None or v == lidarr_compat.MASK:
+                continue
+            v = str(v).strip()
+            if key == "qobuz_password" and v:
+                v = direct.md5_password(v)
+            if v or key in st:
+                st[key] = v
+        c.settings = st
+        c.url = c.url or "streamrip://local"
+        c.category = "streamrip"
+        session.add(c)
+        await session.commit()
+        direct.forget(c.id)
+        return RedirectResponse(url("/settings/downloadclients?notice=Download+client+saved"), status_code=303)
     host = str(form.get("host", "")).strip()
     if not host:
         return RedirectResponse(url("/settings/downloadclients?notice=Host+is+required"), status_code=303)
-    c.name = str(form.get("name") or c.name)
-    c.enabled = _form_bool(form, "enabled")
     c.url = lidarr_compat.join_url(host, form.get("port") or 8080, _form_bool(form, "use_ssl"), str(form.get("url_base") or ""))
     c.username = str(form.get("username") or "")
     if form.get("password") not in (None, "", lidarr_compat.MASK):
@@ -819,7 +845,6 @@ async def downloadclient_save(request: Request, session: AsyncSession = Depends(
     if form.get("api_key") not in (None, "", lidarr_compat.MASK):
         c.api_key = str(form.get("api_key"))
     c.category = str(form.get("category") or "chordarr")
-    c.priority = int(form.get("priority") or 1)
     c.remove_completed = _form_bool(form, "remove_completed")
     c.remote_path = str(form.get("remote_path") or "").strip()
     c.local_path = str(form.get("local_path") or "").strip()

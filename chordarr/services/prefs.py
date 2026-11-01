@@ -5,6 +5,7 @@ Environment / ``chordarr.toml`` give the default; a row in the ``settings`` tabl
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,10 +80,8 @@ async def load_overrides(session: AsyncSession) -> dict:
     values = dict(row.value) if row and row.value else {}
     for key, value in values.items():
         if key in OVERRIDABLE:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 setattr(settings, key, _coerce(key, value))
-            except (TypeError, ValueError):
-                pass
     return values
 
 

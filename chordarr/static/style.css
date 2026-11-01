@@ -69,7 +69,7 @@ svg.i.on{fill:currentColor;color:var(--lidarrGreen)}svg.i.off{color:var(--disabl
 .label.warning{border-color:var(--warningColor);background:var(--warningColor)}.label.info{border-color:var(--infoColor);background:var(--infoColor)}
 .label.disabled{border-color:var(--disabledLabelColor);background:var(--disabledLabelColor)}.label.outline{background:transparent}.label.outline.disabled{color:#fff}
 .label.small{padding:1px 3px;font-size:11px}.label.large{padding:3px 7px;font-weight:bold;font-size:14px}
-.label.torrent{border-color:var(--torrentColor);background:var(--torrentColor)}.label.usenet{border-color:var(--usenetColor);background:var(--usenetColor)}
+.label.torrent{border-color:var(--torrentColor);background:var(--torrentColor)}.label.direct{border-color:var(--purple);background:var(--purple)}.label.usenet{border-color:var(--usenetColor);background:var(--usenetColor)}
 .btn,button.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 16px;height:35px;border:1px solid var(--defaultBorderColor);border-radius:4px;background:var(--defaultBackgroundColor);color:var(--defaultButtonTextColor);font:inherit;line-height:normal;cursor:pointer;white-space:nowrap}
 .btn:hover{background:var(--defaultHoverBackgroundColor);border-color:var(--defaultHoverBorderColor);color:#fff;text-decoration:none}
 .btn.primary{background:var(--primaryBackgroundColor);border-color:var(--primaryBorderColor);color:#fff}.btn.primary:hover{background:var(--primaryHoverBackgroundColor)}

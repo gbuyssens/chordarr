@@ -144,6 +144,19 @@ the key in the `X-Api-Key` header or the `apikey` query parameter.
    "created_at": "2026-11-01T18:04:11"}
   ```
 
+## Direct sources (streamrip)
+
+Besides indexers and torrent/usenet clients, Chordarr can download albums straight from
+**Qobuz, Deezer and Tidal with your own accounts**, through
+[streamrip](https://github.com/nathom/streamrip). Install the extra
+(`pip install 'chordarr[streamrip]'`, included in the Docker image), add a download client
+of type *streamrip* in *Settings → Download Clients*, fill the credentials of the sources
+you subscribe to (Qobuz email and password, Deezer ARL cookie, Tidal tokens from
+`rip config --tidal`), and the sources show up in every release's *Search* next to the
+indexer results, tagged `direct`. At equal quality a direct result is preferred: nothing
+to seed, no indexer luck. The album is ripped into the client's download folder and then
+imported like any other download. A paid subscription is needed for lossless.
+
 ## API
 
 Everything the UI does is available under `/api/v1` (OpenAPI docs at `/docs`).
