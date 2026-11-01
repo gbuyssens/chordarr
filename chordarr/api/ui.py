@@ -310,6 +310,19 @@ async def artist_refresh(artist_id: int, session: AsyncSession = Depends(get_ses
     return RedirectResponse(url(f"/artists/{artist_id}?notice=Refreshed+and+scanned"), status_code=303)
 
 
+@protected.post("/artists/{artist_id}/search")
+async def artist_search_monitored(artist_id: int, session: AsyncSession = Depends(get_session)):
+    """Lidarr's "Search Monitored": every monitored, missing, released item of the artist."""
+    a = await session.get(Artist, artist_id)
+    if not a:
+        raise HTTPException(404)
+    n = len(await acquisition.monitored_missing(session, artist_id))
+    if n == 0:
+        return RedirectResponse(url(f"/artists/{artist_id}?notice=Nothing+to+search:+every+monitored+release+is+on+disk+or+already+queued"), status_code=303)
+    scheduler.trigger_artist_search(artist_id)
+    return RedirectResponse(url(f"/artists/{artist_id}?notice=Searching+{n}+monitored+release{'s' if n > 1 else ''}+in+the+background;+grabs+show+up+in+Activity+→+Queue"), status_code=303)
+
+
 @protected.post("/artists/{artist_id}/delete")
 async def artist_delete(artist_id: int, session: AsyncSession = Depends(get_session)):
     a = await session.get(Artist, artist_id)

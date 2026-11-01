@@ -4,6 +4,8 @@
   <div class="left">
     <form method="post" action="{{ base }}/artists/{{ artist.id }}/refresh"><button class="tool"><svg class="i"><use href="#i-sync"/></svg><span>Refresh &amp; Scan</span></button></form>
     <form method="post" action="{{ base }}/artists/{{ artist.id }}/toggle"><input type="hidden" name="field" value="monitored"><button class="tool"><svg class="i {{ 'on' if artist.monitored else 'off' }}"><use href="#i-bookmark"/></svg><span>{{ 'Monitored' if artist.monitored else 'Unmonitored' }}</span></button></form>
+    <div class="tool-sep"></div>
+    <form method="post" action="{{ base }}/artists/{{ artist.id }}/search"><button class="tool" {% if ('search:artist:' ~ artist.id) in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search Monitored</span></button></form>
   </div>
   <div class="right">
     <form method="post" action="{{ base }}/artists/{{ artist.id }}/delete" onsubmit="return confirm('Remove {{ artist.name|e }} from Chordarr? Files on disk are kept.')"><button class="tool danger"><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button></form>

@@ -143,3 +143,33 @@ async def test_automatic_search_grabs_the_best_result(monkeypatch):
         await session.delete(dl)
         await session.delete(dc)
         await session.commit()
+
+
+async def test_monitored_missing_lists_only_what_search_monitored_should_grab():
+    from datetime import date
+
+    from sqlalchemy import delete
+
+    from chordarr.db import SessionLocal, init_db
+    from chordarr.models import Artist, Download, Release
+    from chordarr.services import acquisition
+
+    await init_db()
+    async with SessionLocal() as session:
+        await session.execute(delete(Download))
+        await session.execute(delete(Artist))
+        a = Artist(mbid="a-mbid-3", name="PLK", sort_name="PLK")
+        session.add(a)
+        await session.flush()
+        rows = [
+            Release(artist_id=a.id, mbid="r1", title="Polak", kind="own", monitored=True, status="missing", first_release_date=date(2018, 1, 1)),
+            Release(artist_id=a.id, mbid="r2", title="Enna", kind="own", monitored=True, status="have", first_release_date=date(2020, 1, 1)),
+            Release(artist_id=a.id, mbid="r3", title="Future", kind="own", monitored=True, status="missing", first_release_date=date(2099, 1, 1)),
+            Release(artist_id=a.id, mbid="r4", title="Not watched", kind="own", monitored=False, status="missing", first_release_date=date(2019, 1, 1)),
+            Release(artist_id=a.id, mbid="r5", title="Feat", kind="appearance", monitored=True, status="missing", first_release_date=date(2021, 1, 1)),
+        ]
+        session.add_all(rows)
+        await session.flush()
+        got = {r.title for r in await acquisition.monitored_missing(session, a.id)}
+        assert got == {"Polak", "Feat"}
+        await session.rollback()

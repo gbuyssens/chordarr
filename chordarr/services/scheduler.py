@@ -116,6 +116,32 @@ async def dispatch() -> None:
             log.info("notifications sent: %s", n)
 
 
+async def search_artist(artist_id: int) -> None:
+    async with session_scope() as session:
+        releases = await acquisition.monitored_missing(session, artist_id)
+        c = await acquisition.search_releases(session, releases)
+        log.info("artist %s search: %s", artist_id, c)
+    await dispatch()
+
+
+async def search_release_ids(release_ids: list[int]) -> None:
+    from chordarr.models import Release
+
+    async with session_scope() as session:
+        releases = list((await session.scalars(select(Release).where(Release.id.in_(release_ids)))).all())
+        c = await acquisition.search_releases(session, releases)
+        log.info("release search %s: %s", release_ids, c)
+    await dispatch()
+
+
+def trigger_artist_search(artist_id: int) -> asyncio.Task:
+    return asyncio.create_task(run_job(f"search:artist:{artist_id}", lambda: search_artist(artist_id)))
+
+
+def trigger_release_search(release_ids: list[int]) -> asyncio.Task:
+    return asyncio.create_task(run_job("search:releases", lambda: search_release_ids(release_ids)))
+
+
 def trigger(name: str) -> asyncio.Task:
     """Run a job now, from the API/UI."""
     factories = {

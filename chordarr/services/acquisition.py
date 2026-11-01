@@ -283,6 +283,38 @@ async def grab_best(session: AsyncSession, release: Release) -> Download | None:
     return await grab(session, release, best)
 
 
+async def search_releases(session: AsyncSession, releases: list[Release]) -> dict:
+    """Automatic search over a list of releases: the best accepted result of each is grabbed."""
+    counters = {"searched": 0, "grabbed": 0, "nothing": 0, "failed": 0}
+    for release in releases:
+        counters["searched"] += 1
+        try:
+            dl = await grab_best(session, release)
+        except GrabError as exc:
+            counters["failed"] += 1
+            log.warning("grab failed for %s: %s", release.title, exc)
+            add_event(session, "download_failed", f"Could not grab {release.title}", str(exc)[:400], release=release)
+            continue
+        if dl is None:
+            counters["nothing"] += 1
+        else:
+            counters["grabbed"] += 1
+        await session.flush()
+    return counters
+
+
+async def monitored_missing(session: AsyncSession, artist_id: int) -> list[Release]:
+    """Lidarr's "Search Monitored": monitored releases of the artist that are out and absent."""
+    active = select(Download.release_id).where(Download.status.in_(("grabbed", "downloading", "completed", "importing")))
+    q = (
+        select(Release)
+        .where(Release.artist_id == artist_id, Release.monitored.is_(True), Release.status.in_(("missing", "partial")), Release.first_release_date <= date.today())
+        .where(Release.id.not_in(active))
+        .order_by(Release.first_release_date.desc())
+    )
+    return list((await session.scalars(q)).all())
+
+
 async def search_wanted(session: AsyncSession, grab_all: bool = False) -> dict:
     """Automatic search for wanted releases; grabs the best candidate when auto_grab is on
     (or when ``grab_all`` is set by a user action such as *Search All*)."""

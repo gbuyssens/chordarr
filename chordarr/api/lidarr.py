@@ -379,6 +379,12 @@ async def run_command(body: dict, session: AsyncSession = Depends(get_session)):
             await session.commit()
             scheduler.trigger("notify")
         return _record_command(name, body, "completed")
+    if name == "ArtistSearch" and body.get("artistId"):
+        scheduler.trigger_artist_search(int(body["artistId"]))
+        return _record_command(name, body, "started")
+    if name == "AlbumSearch" and body.get("albumIds"):
+        scheduler.trigger_release_search([int(x) for x in body["albumIds"]])
+        return _record_command(name, body, "started")
     if job in ("refresh", "scan", "recommendations", "notify", "rss", "search", "queue"):
         scheduler.trigger(job)
         return _record_command(name, body, "started")
