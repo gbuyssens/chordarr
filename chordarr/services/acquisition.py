@@ -79,7 +79,7 @@ def matches_release(candidate: Candidate, artist_name: str, title: str, other_ti
     want = _tokens(artist_name) | _tokens(title)
     if not want or not want <= have:
         return False
-    if extra_words(candidate.title, artist_name, title):
+    if artist_name and extra_words(candidate.title, artist_name, title):
         return False
     mine = _tokens(title)
     for other in other_titles:
@@ -133,6 +133,21 @@ async def _usable_indexers(session: AsyncSession, interactive: bool) -> list[Ind
     return [i for i in rows if getattr(i, flag)]
 
 
+def credited_artist(release: Release, tracked_name: str) -> str:
+    """The name releases are searched and matched under.
+
+    An appearance is somebody else's record: the whole album of the credited artist is
+    wanted ("twinsmatic - MAGIC / DEVANT LA MER" for a Bekar feature), so the credited
+    artist is used, not the tracked one. "Various Artists" compilations search by title only.
+    """
+    if release.kind == "appearance" and release.artist_credit:
+        credit = release.artist_credit
+        if "various artists" in credit.casefold():
+            return ""
+        return credit
+    return tracked_name
+
+
 async def _direct_clients(session: AsyncSession) -> list[DownloadClient]:
     rows = (await session.scalars(select(DownloadClient).where(DownloadClient.enabled.is_(True)).order_by(DownloadClient.priority, DownloadClient.id))).all()
     return [c for c in rows if c.protocol == "direct"]
@@ -146,9 +161,10 @@ async def search_release(session: AsyncSession, release: Release, interactive: b
     if not artist or (not idx and not directs):
         return []
     prefs = await get_prefs(session)
+    name = credited_artist(release, artist.name)
     results = await asyncio.gather(
-        *(indexers.search(i, artist.name, release.title, release.mbid) for i in idx),
-        *(direct.search(c, artist.name, release.title) for c in directs),
+        *(indexers.search(i, name, release.title, release.mbid) for i in idx),
+        *(direct.search(c, name, release.title) for c in directs),
         return_exceptions=True,
     )
     candidates: list[Candidate] = []
@@ -170,7 +186,7 @@ async def search_release(session: AsyncSession, release: Release, interactive: b
     active = set(
         (await session.scalars(select(Download.guid).where(Download.status.in_(("grabbed", "downloading", "completed", "importing"))))).all()
     )
-    return evaluate(candidates, artist.name, release, prefs.quality_profile, {i.id: i for i in idx}, active, await sibling_titles(session, release))
+    return evaluate(candidates, name, release, prefs.quality_profile, {i.id: i for i in idx}, active, await sibling_titles(session, release))
 
 
 async def fetch_payload(url: str) -> tuple[bytes | None, str | None]:
@@ -373,10 +389,11 @@ async def rss_sync(session: AsyncSession) -> dict:
         if not artist:
             continue
         others = tuple(t for t in titles_by_artist.get(release.artist_id, []) if t != release.title)
-        hits = [c for c in items if matches_release(c, artist.name, release.title, others)]
+        name = credited_artist(release, artist.name)
+        hits = [c for c in items if matches_release(c, name, release.title, others)]
         if not hits:
             continue
-        ranked = evaluate(hits, artist.name, release, prefs.quality_profile, by_id, other_titles=others)
+        ranked = evaluate(hits, name, release, prefs.quality_profile, by_id, other_titles=others)
         best = next((c for c in ranked if c.accepted), None)
         if best is None:
             continue

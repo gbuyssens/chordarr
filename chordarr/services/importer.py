@@ -122,18 +122,32 @@ def format_name(fmt: str, **values) -> str:
     return sanitize(name)
 
 
+def owner_name(artist: Artist, release: Release) -> str:
+    """Whose folder a release goes into: the credited artist for an appearance (the whole
+    record of somebody else is imported), the tracked artist otherwise."""
+    if release.kind == "appearance" and release.artist_credit:
+        return release.artist_credit
+    return artist.name
+
+
 def release_folder(artist: Artist, release: Release) -> Path:
-    base = artist_folder(artist)
+    owner = owner_name(artist, release)
+    if owner == artist.name:
+        base = artist_folder(artist)
+    elif settings.root_folder:
+        base = Path(settings.root_folder) / format_name(settings.artist_folder_format, artist=owner)
+    else:
+        base = None
     if base is None:
         raise ImportError_("no root folder configured (CHORDARR_ROOT_FOLDER)")
-    return base / format_name(settings.album_folder_format, album=release.title, year=release.year or "", artist=artist.name)
+    return base / format_name(settings.album_folder_format, album=release.title, year=release.year or "", artist=owner)
 
 
 def track_filename(track: TrackInfo, release: Release, artist: Artist, number: int, multi_disc: bool) -> str:
     fmt = settings.track_format
     if multi_disc and "{disc}" not in fmt:
         fmt = "{disc}-" + fmt
-    name = format_name(fmt, nn=f"{number:02d}", track=number, disc=track.disc or 1, title=track.title, artist=track.artist or artist.name, album=release.title, year=release.year or "")
+    name = format_name(fmt, nn=f"{number:02d}", track=number, disc=track.disc or 1, title=track.title, artist=track.artist or owner_name(artist, release), album=release.title, year=release.year or "")
     return name + track.path.suffix.casefold()
 
 
@@ -166,7 +180,9 @@ def check_match(tracks: list[TrackInfo], release: Release, artist: Artist) -> st
     albums = {normalise(t.album) for t in tracks if t.album}
     if want_album and any(same_album(a, want_album) for a in albums if a):
         return None
-    artist_tokens = set(normalise(artist.name).split())
+    artist_tokens = set(normalise(release.artist_credit if release.kind == "appearance" and release.artist_credit else artist.name).split())
+    if "various artists" in (release.artist_credit or "").casefold():
+        artist_tokens = set()
     credited = " ".join(t.artist + " " + t.album_artist for t in tracks)
     raw_album = next((t.album for t in tracks if t.album), "")
     if albums and artist_tokens and not artist_tokens <= set(normalise(credited).split()):

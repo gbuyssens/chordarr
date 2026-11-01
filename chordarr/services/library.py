@@ -161,6 +161,13 @@ async def scan_artist(session: AsyncSession, artist: Artist) -> dict:
     for rel in releases:
         hit = paired.get(rel.id)
         if hit is None:
+            if rel.path and Path(rel.path).is_dir() and any(Path(rel.path).glob("*")):
+                # Imported outside the artist folder (an appearance filed under the credited
+                # artist): trust the recorded path as long as it still holds files.
+                audio = [f for f in Path(rel.path).iterdir() if f.suffix.casefold() in AUDIO_EXT]
+                if audio:
+                    rel.file_count = len(audio)
+                    continue
             if rel.status in ("have", "partial"):
                 rel.status, rel.path, rel.file_count = "missing", None, 0
             continue

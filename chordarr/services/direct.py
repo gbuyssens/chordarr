@@ -248,7 +248,7 @@ async def search(client: DownloadClient, artist: str, title: str, limit: int = 1
     for source in enabled_sources(client):
         try:
             sc = await source_client(client, source)
-            pages = await sc.search("album", f"{artist} {title}", limit=limit)
+            pages = await sc.search("album", f"{artist} {title}".strip(), limit=limit)
             out.extend(candidates_from_pages(client, source, pages))
         except Exception as exc:
             log.warning("streamrip %s search failed: %s", source, clean_error(exc))

@@ -180,3 +180,16 @@ def test_unwritable_destination_gives_a_readable_error(tmp_path, monkeypatch):
     src.write_bytes(b"x")
     with pytest.raises(ImportError_, match="not writable"):
         transfer(src, locked / "Album" / "a.flac", "copy")
+
+
+def test_appearance_is_filed_under_the_credited_artist(tmp_path, monkeypatch):
+    from chordarr.config import settings
+    from chordarr.models import Artist, Release
+    from chordarr.services.importer import release_folder
+
+    monkeypatch.setattr(settings, "root_folder", tmp_path)
+    bekar = Artist(id=1, mbid="a", name="Bekar", sort_name="Bekar", path=str(tmp_path / "Bekar"))
+    feat = Release(id=1, artist_id=1, mbid="rg", title="MAGIC / DEVANT LA MER", kind="appearance", artist_credit="twinsmatic")
+    own = Release(id=2, artist_id=1, mbid="rg2", title="Alba", kind="own", artist_credit="Bekar")
+    assert release_folder(bekar, feat) == tmp_path / "twinsmatic" / "MAGIC - DEVANT LA MER"
+    assert release_folder(bekar, own) == tmp_path / "Bekar" / "Alba"

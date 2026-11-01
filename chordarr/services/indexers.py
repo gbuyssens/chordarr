@@ -181,7 +181,7 @@ async def search(indexer: Indexer, artist: str, album: str, mbid: str | None = N
     """Music search: ``artist``/``album`` parameters when the indexer takes them, else a text query."""
     music_params = set((indexer.capabilities or {}).get("music_params") or [])
     params: dict = {"t": "music", "cat": _cat_param(indexer), "limit": limit, "extended": 1}
-    if "artist" in music_params and "album" in music_params:
+    if artist and "artist" in music_params and "album" in music_params:
         params["artist"], params["album"] = artist, album
     else:
         params["q"] = f"{artist} {album}".strip()
@@ -191,7 +191,7 @@ async def search(indexer: Indexer, artist: str, album: str, mbid: str | None = N
     items = parse_feed(text, indexer)
     if not items and "q" not in params:
         # Some indexers advertise artist/album but only honour q.
-        items = parse_feed(await fetch(indexer, {"t": "search", "cat": params["cat"], "q": f"{artist} {album}", "limit": limit}), indexer)
+        items = parse_feed(await fetch(indexer, {"t": "search", "cat": params["cat"], "q": f"{artist} {album}".strip(), "limit": limit}), indexer)
     return items
 
 

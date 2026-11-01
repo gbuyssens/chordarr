@@ -126,3 +126,21 @@ def test_extra_words_tolerates_formats_and_group_tags():
     assert matches_release(cand("Linkin Park - Meteora (20th Anniversary Edition) WEB FLAC"), "Linkin Park", "Meteora")
     assert matches_release(cand("Orelsan - Civilisation 2021 FLAC 24Bits - EICHBAUM"), "Orelsan", "Civilisation")
     assert not matches_release(cand("Orelsan - Civilisation Edition Ultime 2022 FLAC"), "Orelsan", "Civilisation")
+
+
+def test_appearances_search_the_credited_artist_whole_record():
+    from chordarr.models import Release
+    from chordarr.services.acquisition import credited_artist, matches_release
+    from chordarr.services.indexers import Candidate
+
+    feat = Release(id=1, mbid="rg", title="MAGIC / DEVANT LA MER", kind="appearance", artist_credit="twinsmatic")
+    own = Release(id=2, mbid="rg2", title="Alba", kind="own", artist_credit="Bekar")
+    comp = Release(id=3, mbid="rg3", title="Planète Rap 2024", kind="appearance", artist_credit="Various Artists")
+    assert credited_artist(feat, "Bekar") == "twinsmatic"
+    assert credited_artist(own, "Bekar") == "Bekar"
+    assert credited_artist(comp, "Bekar") == ""
+    c = Candidate(title="twinsmatic - MAGIC / DEVANT LA MER (2026) [Deezer FLAC]", guid="g", download_url="u", indexer_id=0, indexer_name="Deezer", protocol="direct")
+    assert matches_release(c, credited_artist(feat, "Bekar"), feat.title)
+    assert not matches_release(c, "Bekar", feat.title)
+    va = Candidate(title="Various Artists - Planete Rap 2024 FLAC", guid="g", download_url="u", indexer_id=0, indexer_name="x", protocol="torrent")
+    assert matches_release(va, credited_artist(comp, "Bekar"), comp.title)
