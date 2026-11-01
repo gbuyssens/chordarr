@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}Missing · Chordarr{% endblock %}
 {% block toolbar %}
-<div class="toolbar"><div class="right"><form method="get" class="inline"><select name="kind" onchange="this.form.submit()"><option value="" {{ 'selected' if not kind }}>Filter: Everything</option><option value="own" {{ 'selected' if kind=='own' }}>Own releases</option><option value="appearance" {{ 'selected' if kind=='appearance' }}>Features &amp; appearances</option></select></form></div></div>
+<div class="toolbar"><div class="left"><form method="post" action="{{ base }}/activity/queue/search-all"><button class="tool" {% if 'search' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search All</span></button></form></div><div class="right"><form method="get" class="inline"><select name="kind" onchange="this.form.submit()"><option value="" {{ 'selected' if not kind }}>Filter: Everything</option><option value="own" {{ 'selected' if kind=='own' }}>Own releases</option><option value="appearance" {{ 'selected' if kind=='appearance' }}>Features &amp; appearances</option></select></form></div></div>
 {% endblock %}
 {% block content %}
 <h1 class="page-title">Missing <span class="muted small">{{ releases|length }} monitored releases out and not on disk</span></h1>

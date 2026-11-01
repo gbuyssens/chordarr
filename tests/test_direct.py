@@ -108,3 +108,38 @@ async def test_grab_direct_creates_a_download_without_indexer(monkeypatch):
         await session.delete(dl)
         await session.delete(dc)
         await session.commit()
+
+
+async def test_automatic_search_grabs_the_best_result(monkeypatch):
+    from sqlalchemy import delete
+
+    from chordarr.db import SessionLocal, init_db
+    from chordarr.models import Artist, Download, Release
+    from chordarr.services import acquisition
+    from chordarr.services.indexers import Candidate
+
+    await init_db()
+    async with SessionLocal() as session:
+        await session.execute(delete(Download))
+        await session.execute(delete(Artist))
+        artist = Artist(mbid="a-mbid-2", name="Lomepal", sort_name="Lomepal")
+        session.add(artist)
+        await session.flush()
+        rel = Release(artist_id=artist.id, mbid="rg-jeannine", title="Jeannine", kind="own")
+        dc = DownloadClient(name="Comptes", implementation="streamrip", url="streamrip://local", enabled=True, settings={"deezer_arl": "x", "quality": 2})
+        session.add_all([rel, dc])
+        await session.flush()
+
+        async def fake_search(s, release, interactive=True):
+            bad = Candidate(title="Lomepal - Jeannine MP3", guid="g1", download_url="u1", indexer_id=0, indexer_name="x", protocol="torrent", quality="low", rejections=["quality"])
+            good = Candidate(title="Lomepal - Jeannine (2018) [Deezer FLAC]", guid=f"direct:{dc.id}:deezer:9", download_url=f"direct:{dc.id}:deezer:9", indexer_id=0, indexer_name="Deezer", protocol="direct", quality="lossless")
+            return [bad, good]
+
+        monkeypatch.setattr(acquisition, "search_release", fake_search)
+        monkeypatch.setattr(direct, "start", lambda cfg, source, album_id, title: direct.JOBS.setdefault("rip-auto", direct.Job(id="rip-auto", title=title, source=source, album_id=album_id)))
+        dl = await acquisition.grab_best(session, rel)
+        await session.commit()
+        assert dl is not None and dl.guid == f"direct:{dc.id}:deezer:9" and rel.last_search_at is not None
+        await session.delete(dl)
+        await session.delete(dc)
+        await session.commit()

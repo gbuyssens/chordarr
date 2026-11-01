@@ -15,5 +15,5 @@
     {% elif not r.monitored %}<span class="label">unmonitored</span>
     {% else %}<span class="label danger">missing</span>{% endif %}
   </td>
-  <td class="col-actions">{% if r.status != 'have' and not r.is_upcoming %}<a class="icon-btn" title="Search indexers" href="{{ base }}/releases/{{ r.id }}/search"><svg class="i"><use href="#i-search"/></svg></a>{% endif %}<a class="icon-btn" title="MusicBrainz" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}"><svg class="i"><use href="#i-external"/></svg></a></td>
+  <td class="col-actions">{% if r.status != 'have' and not r.is_upcoming %}<form method="post" action="{{ base }}/releases/{{ r.id }}/search/auto" class="inline"><button class="icon-btn" title="Automatic search: grab the best result"><svg class="i"><use href="#i-search"/></svg></button></form><a class="icon-btn" title="Interactive search" href="{{ base }}/releases/{{ r.id }}/search"><svg class="i"><use href="#i-user"/></svg></a>{% endif %}<a class="icon-btn" title="MusicBrainz" target="_blank" rel="noopener" href="https://musicbrainz.org/release-group/{{ r.mbid }}"><svg class="i"><use href="#i-external"/></svg></a></td>
 </tr>

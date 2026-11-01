@@ -1,10 +1,10 @@
 {% extends "base.html" %}{% block title %}Search · {{ release.title }} · Chordarr{% endblock %}
 {% block toolbar %}
-<div class="toolbar"><div class="left"><a class="tool" href="{{ base }}/artists/{{ artist.id }}#rg-{{ release.mbid }}"><svg class="i"><use href="#i-user"/></svg><span>{{ artist.name }}</span></a></div>
+<div class="toolbar"><div class="left"><a class="tool" href="{{ base }}/artists/{{ artist.id }}#rg-{{ release.mbid }}"><svg class="i"><use href="#i-user"/></svg><span>{{ artist.name }}</span></a><form method="post" action="{{ base }}/releases/{{ release.id }}/search/auto"><button class="tool"><svg class="i"><use href="#i-search"/></svg><span>Grab Best</span></button></form></div>
 <div class="right"><span class="muted small">profile <b>{{ prefs.quality_profile }}</b> · {{ indexers|length }} indexer{{ 's' if indexers|length != 1 }}</span></div></div>
 {% endblock %}
 {% block content %}
-<h1 class="page-title">{{ artist.name }} – {{ release.title }} <span class="muted small">{{ release.type_label }} · {{ release.first_release_date or 'date unknown' }} · {{ candidates|length }} results</span></h1>
+<h1 class="page-title">Interactive Search · {{ artist.name }} – {{ release.title }} <span class="muted small">{{ release.type_label }} · {{ release.first_release_date or 'date unknown' }} · {{ candidates|length }} results</span></h1>
 {% if not indexers %}<div class="notice">No indexer configured. Add Chordarr to Prowlarr as a Lidarr application, or add one in <a href="{{ base }}/settings/indexers">Settings → Indexers</a>.</div>{% endif %}
 {% for i in indexers if i.last_error %}<div class="notice">{{ i.name }}: {{ i.last_error }}</div>{% endfor %}
 <table class="table">

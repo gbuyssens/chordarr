@@ -273,8 +273,19 @@ async def wanted_releases(session: AsyncSession, due_only: bool = True, limit: i
     return (await session.scalars(q.order_by(Release.last_search_at.nulls_first(), Release.first_release_date.desc()).limit(limit))).all()
 
 
-async def search_wanted(session: AsyncSession) -> dict:
-    """Automatic search for wanted releases; grabs the best candidate when auto_grab is on."""
+async def grab_best(session: AsyncSession, release: Release) -> Download | None:
+    """Automatic search for one release: search everything, grab the best accepted result."""
+    candidates = await search_release(session, release, interactive=False)
+    release.last_search_at = utcnow()
+    best = next((c for c in candidates if c.accepted), None)
+    if best is None:
+        return None
+    return await grab(session, release, best)
+
+
+async def search_wanted(session: AsyncSession, grab_all: bool = False) -> dict:
+    """Automatic search for wanted releases; grabs the best candidate when auto_grab is on
+    (or when ``grab_all`` is set by a user action such as *Search All*)."""
     counters = {"searched": 0, "found": 0, "grabbed": 0}
     prefs = await get_prefs(session)
     if not await _usable_indexers(session, interactive=False) and not await _direct_clients(session):
@@ -287,7 +298,7 @@ async def search_wanted(session: AsyncSession) -> dict:
         if best is None:
             continue
         counters["found"] += 1
-        if prefs.auto_grab:
+        if prefs.auto_grab or grab_all:
             try:
                 await grab(session, release, best)
                 counters["grabbed"] += 1

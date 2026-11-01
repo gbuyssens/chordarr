@@ -2,47 +2,70 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="left">
-    <form method="post" action="{{ base }}/activity/queue/refresh"><button class="tool" {% if 'queue' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-sync"/></svg><span>Check downloads</span></button></form>
-    <form method="post" action="{{ base }}/system/tasks/rss"><button class="tool" {% if 'rss' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-rss"/></svg><span>Read RSS</span></button></form>
-    <form method="post" action="{{ base }}/system/tasks/search"><button class="tool" {% if 'search' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search all missing</span></button></form>
+    <form method="post" action="{{ base }}/activity/queue/refresh"><button class="tool" {% if 'queue' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-sync"/></svg><span>Refresh</span></button></form>
+    <form method="post" action="{{ base }}/system/tasks/rss"><button class="tool" {% if 'rss' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-rss"/></svg><span>RSS Sync</span></button></form>
+    <form method="post" action="{{ base }}/activity/queue/search-all"><button class="tool" {% if 'search' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search All Missing</span></button></form>
+    <div class="tool-sep"></div>
+    <a class="tool" href="#manual"><svg class="i"><use href="#i-folder"/></svg><span>Manual Import</span></a>
   </div>
-  <div class="right"><span class="muted small">{{ 'automatic grabbing on · ' ~ prefs.quality_profile if prefs.auto_grab else 'automatic grabbing off' }}</span></div>
+  <div class="right">
+    <a class="tool {{ 'active' if show_finished }}" href="?finished={{ '0' if show_finished else '1' }}"><svg class="i"><use href="#i-list"/></svg><span>{{ 'Hide Finished' if show_finished else 'Show Finished' }}</span></a>
+  </div>
 </div>
 {% endblock %}
 {% block content %}
-<h1 class="page-title">Queue <span class="muted small">{{ downloads|selectattr('active')|list|length }} active · polled every {{ settings.queue_poll_seconds|int }} s</span></h1>
-{% if not clients %}<div class="notice">No download client yet: add one in <a href="{{ base }}/settings/downloadclients">Settings → Download Clients</a>.</div>{% endif %}
-<table class="table">
-<thead><tr><th>Release</th><th>Download</th><th>Quality</th><th>Size</th><th>Progress</th><th>Status</th><th></th></tr></thead>
+{% if not clients %}<div class="alert warning">No download client yet: add one in <a href="{{ base }}/settings/downloadclients">Settings → Download Clients</a>.</div>{% endif %}
+<table class="table queue">
+<thead><tr><th></th><th>Artist</th><th>Album</th><th>Quality</th><th>Protocol</th><th>Indexer</th><th>Download Client</th><th>Size</th><th>Progress</th><th></th></tr></thead>
 <tbody>
 {% for d in downloads %}
+{% set rel = d.release %}
+{% set state = 'imported' if d.status == 'imported' else 'failed' if d.status == 'failed' else 'warning' if d.status == 'warning' else 'importing' if d.status in ('completed', 'importing') else 'downloading' %}
 <tr>
-  <td>{% if d.release %}<a href="{{ base }}/artists/{{ d.release.artist_id }}#rg-{{ d.release.mbid }}">{{ artists[d.release.artist_id].name if d.release.artist_id in artists else d.release.artist_credit }} – {{ d.release.title }}</a>{% else %}<span class="muted">(release removed)</span>{% endif %}
-    <div class="muted small">{{ d.added_at.strftime('%Y-%m-%d %H:%M') }} · {{ d.protocol }}{% if d.message %} · {{ d.message }}{% endif %}</div></td>
-  <td class="small">{{ d.title }}</td>
+  <td class="col-mon" title="{{ d.status }}{% if d.message %} · {{ d.message }}{% endif %}">
+    {% if state == 'imported' %}<svg class="i success"><use href="#i-check"/></svg>
+    {% elif state == 'failed' %}<svg class="i text-danger"><use href="#i-exclamation"/></svg>
+    {% elif state == 'warning' %}<svg class="i text-warning"><use href="#i-exclamation"/></svg>
+    {% elif state == 'importing' %}<svg class="i text-info"><use href="#i-sync"/></svg>
+    {% else %}<svg class="i text-info"><use href="#i-download"/></svg>{% endif %}
+  </td>
+  <td>{% if rel and rel.artist_id in artists %}<a href="{{ base }}/artists/{{ rel.artist_id }}">{{ artists[rel.artist_id].name }}</a>{% elif rel %}{{ rel.artist_credit }}{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td>{% if rel %}<a href="{{ base }}/artists/{{ rel.artist_id }}#rg-{{ rel.mbid }}">{{ rel.title }}</a>{% else %}<span class="muted">(release removed)</span>{% endif %}<div class="muted xs">{{ d.title }}</div></td>
   <td><span class="label {{ 'success' if d.quality == 'lossless' else 'info' if d.quality == 'high' else '' }}">{{ d.quality }}</span></td>
+  <td><span class="label {{ d.protocol }}">{{ d.protocol }}</span></td>
+  <td class="muted small">{{ indexer_names.get(d.indexer_id) or (d.title.split('[')[-1].rstrip(']') if d.protocol == 'direct' else '—') }}</td>
+  <td class="muted small">{{ client_names.get(d.download_client_id, '—') }}</td>
   <td class="muted nowrap">{{ human_size(d.size) }}</td>
-  <td class="nowrap">{{ '%d%%'|format(d.progress * 100) }}</td>
-  <td><span class="label {{ 'success' if d.status == 'imported' else 'warning' if d.status in ('warning', 'completed', 'importing') else 'danger' if d.status == 'failed' else 'info' }}">{{ d.status }}</span></td>
+  <td class="col-progress"><div class="progress medium {{ 'complete' if state in ('imported',) else 'missing' if state == 'failed' else '' }}" title="{{ d.status }}"><div style="width:{{ (d.progress * 100)|int }}%"></div><span>{% if state == 'importing' %}Importing{% elif state == 'imported' %}Imported{% elif state == 'warning' %}Needs attention{% elif state == 'failed' %}Failed{% else %}{{ (d.progress * 100)|int }}%{% endif %}</span></div>{% if d.message and state in ('warning', 'failed') %}<div class="text-danger xs">{{ d.message[:120] }}</div>{% endif %}</td>
   <td class="col-actions">
-    {% if d.status in ('warning', 'completed', 'failed') and d.release and d.output_path %}<form method="post" action="{{ base }}/activity/queue/{{ d.id }}/import" class="inline"><input type="hidden" name="force" value="1"><button class="icon-btn" title="Import anyway (ignore tag mismatch)"><svg class="i"><use href="#i-download"/></svg></button></form>{% endif %}
-    <form method="post" action="{{ base }}/activity/queue/{{ d.id }}/remove" class="inline" onsubmit="return confirm('Remove from the queue{% if d.status != 'imported' %} and from the download client{% endif %}?')"><button class="icon-btn" title="Remove"><svg class="i"><use href="#i-trash"/></svg></button></form>
+    {% if state in ('warning', 'importing', 'failed') and rel and d.output_path %}<form method="post" action="{{ base }}/activity/queue/{{ d.id }}/import" class="inline"><input type="hidden" name="force" value="1"><button class="icon-btn" title="Manual import (ignore tag mismatch)"><svg class="i"><use href="#i-download"/></svg></button></form>{% endif %}
+    <button class="icon-btn" title="Remove from queue" onclick="document.getElementById('rm-{{ d.id }}').showModal()"><svg class="i"><use href="#i-trash"/></svg></button>
+    <dialog id="rm-{{ d.id }}" class="modal">
+      <form method="post" action="{{ base }}/activity/queue/{{ d.id }}/remove" class="form">
+        <h2>Remove - {{ d.title[:60] }}</h2>
+        {% if d.status != 'imported' %}
+        {{ f.check('remove_from_client', True, 'Remove from download client' if d.protocol != 'direct' else 'Stop the download and delete the ripped files') }}
+        {% if d.protocol != 'direct' %}{{ f.check('delete_files', False, 'Also delete the downloaded files from the client (the import keeps its own copy)') }}{% endif %}
+        {% else %}<div class="help">This download is already imported; it only disappears from the list, the files in the library stay.</div>{% endif %}
+        <div class="form-actions"><span class="spacer"></span><button type="button" class="btn" onclick="this.closest('dialog').close()">Close</button><button class="btn danger">Remove</button></div>
+      </form>
+    </dialog>
   </td>
 </tr>
 {% else %}
-<tr><td colspan="7" class="muted center">Nothing in the queue. Pick a result from a release's <em>Search</em>, or turn on automatic grabbing in <a href="{{ base }}/settings/indexers">Settings → Indexers</a>.</td></tr>
+<tr><td colspan="10" class="muted center">{% if show_finished %}Nothing has been downloaded yet.{% else %}Nothing in the queue. Pick a result from a release's <em>Interactive Search</em>, use <em>Search</em> on a release to grab the best one, or turn on automatic grabbing in <a href="{{ base }}/settings/indexers">Settings → Indexers</a>.{% endif %}</td></tr>
 {% endfor %}
 </tbody></table>
 
-<div class="panel" id="manual">
-  <h3>Import a folder</h3>
-  <p class="muted small">Music already on disk (a download Chordarr did not grab, a rip…). Files are filed as <code>{{ settings.root_folder }}/{{ settings.artist_folder_format }}/{{ settings.album_folder_format }}/{{ settings.track_format }}.ext</code> (mode <code>{{ settings.import_mode }}</code>). Leave the release empty to guess it from the tags.</p>
-  <form method="post" action="{{ base }}/activity/queue/import" class="form">
-    <label>Folder or file<input name="path" required placeholder="/data/torrents/chordarr/Artist - Album (2024) FLAC"></label>
-    <label>Release<select name="release_id"><option value="">guess from tags</option>{% for r in wanted %}<option value="{{ r.id }}">{{ artists[r.artist_id].name if r.artist_id in artists else r.artist_credit }} – {{ r.title }} ({{ r.year or '?' }}){% if r.status != 'missing' %} · {{ r.status }}{% endif %}</option>{% endfor %}</select></label>
-    <label>Mode<select name="mode"><option value="">default ({{ settings.import_mode }})</option><option value="hardlink">hardlink (copy when impossible)</option><option value="copy">copy</option><option value="move">move</option></select></label>
-    <label class="check"><input type="checkbox" name="force"> Import even if the tags do not match the release</label>
-    <div><button class="btn primary">Import</button></div>
-  </form>
-</div>
+{% call f.fieldset('Manual Import') %}
+<div id="manual"></div>
+<p class="help" style="margin-top:0">Music already on disk (a download Chordarr did not grab, a rip…). Files are filed as <code>{{ settings.root_folder }}/{{ settings.artist_folder_format }}/{{ settings.album_folder_format }}/{{ settings.track_format }}.ext</code> (mode <code>{{ settings.import_mode }}</code>). Leave the release empty to guess it from the tags.</p>
+<form method="post" action="{{ base }}/activity/queue/import">
+  {% call f.group('Folder or file', size='large') %}{{ f.text('path', '', '/data/torrents/chordarr/Artist - Album (2024) FLAC') }}{% endcall %}
+  {% call f.group('Release', size='large') %}<select name="release_id"><option value="">guess from tags</option>{% for r in wanted %}<option value="{{ r.id }}">{{ artists[r.artist_id].name if r.artist_id in artists else r.artist_credit }} – {{ r.title }} ({{ r.year or '?' }}){% if r.status != 'missing' %} · {{ r.status }}{% endif %}</option>{% endfor %}</select>{% endcall %}
+  {% call f.group('Mode', size='medium') %}{{ f.select('mode', [('', 'default (' ~ settings.import_mode ~ ')'), ('hardlink', 'hardlink (copy when impossible)'), ('copy', 'copy'), ('move', 'move')], '') }}{% endcall %}
+  {% call f.group('Force', size='medium') %}{{ f.check('force', False, 'Import even if the tags do not match the release') }}{% endcall %}
+  <div class="form-actions"><span class="spacer"></span><button class="btn primary">Import</button></div>
+</form>
+{% endcall %}
 {% endblock %}

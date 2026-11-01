@@ -342,7 +342,7 @@ class StreamripClient:
             for j in JOBS.values()
         ]
 
-    async def remove(self, client_id: str, delete_files: bool = False) -> None:
+    async def remove(self, client_id: str, delete_files: bool = True) -> None:
         job = JOBS.pop(client_id, None)
         if job and delete_files and job.path and Path(job.path).is_dir():
             shutil.rmtree(job.path, ignore_errors=True)

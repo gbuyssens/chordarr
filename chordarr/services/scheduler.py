@@ -92,7 +92,7 @@ async def search_wanted(force: bool = False) -> None:
         prefs = await get_prefs(session)
         if not prefs.auto_grab and not force:
             return
-        c = await acquisition.search_wanted(session)
+        c = await acquisition.search_wanted(session, grab_all=force)
         log.info("search: %s", c)
     await dispatch()
 async def scheduled_backup() -> None:

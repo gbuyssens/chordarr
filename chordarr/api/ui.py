@@ -358,8 +358,11 @@ async def activity_root():
 
 
 @protected.get("/activity/queue", response_class=HTMLResponse)
-async def queue_page(request: Request, session: AsyncSession = Depends(get_session)):
-    downloads = (await session.scalars(select(Download).order_by(Download.id.desc()).limit(200))).all()
+async def queue_page(request: Request, finished: int = 0, session: AsyncSession = Depends(get_session)):
+    q = select(Download).order_by(Download.id.desc()).limit(200)
+    if not finished:
+        q = q.where(Download.status != "imported")
+    downloads = (await session.scalars(q)).all()
     artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
     wanted = (
         await session.scalars(
@@ -368,7 +371,15 @@ async def queue_page(request: Request, session: AsyncSession = Depends(get_sessi
     ).all()
     wanted.sort(key=lambda r: (artists[r.artist_id].sort_name if r.artist_id in artists else "", r.title))
     clients = (await session.scalars(select(DownloadClient).where(DownloadClient.enabled.is_(True)))).all()
-    return render(request, "activity/queue.html", downloads=downloads, artists=artists, wanted=wanted, clients=clients, prefs=await get_prefs(session))
+    indexer_names = {i.id: i.name for i in (await session.scalars(select(Indexer))).all()}
+    client_names = {c.id: c.name for c in (await session.scalars(select(DownloadClient))).all()}
+    return render(request, "activity/queue.html", downloads=downloads, artists=artists, wanted=wanted, clients=clients, prefs=await get_prefs(session), show_finished=bool(finished), indexer_names=indexer_names, client_names=client_names)
+
+
+@protected.post("/activity/queue/search-all")
+async def queue_search_all():
+    scheduler.trigger("search")
+    return RedirectResponse(url("/activity/queue?notice=Searching+every+missing+release;+the+best+result+of+each+is+grabbed"), status_code=303)
 
 
 @protected.post("/activity/queue/refresh")
@@ -392,19 +403,23 @@ async def manual_import_ui(path: str = Form(...), release_id: str = Form(""), mo
 
 
 @protected.post("/activity/queue/{download_id}/remove")
-async def queue_remove_ui(download_id: int, session: AsyncSession = Depends(get_session)):
+async def queue_remove(request: Request, download_id: int, session: AsyncSession = Depends(get_session)):
+    form = await request.form()
     d = await session.get(Download, download_id)
-    if d:
-        cfg = await session.get(DownloadClient, d.download_client_id) if d.download_client_id else None
-        if cfg and d.client_id and d.status != "imported":
-            try:
-                async with downloadclients.make_client(cfg) as dc:
-                    await dc.remove(d.client_id, delete_files=False)
-            except Exception as exc:
-                log.warning("remove %s from %s: %s", d.title, cfg.name, exc)
-        await session.delete(d)
-        await session.commit()
-    return RedirectResponse(url("/activity/queue?notice=Removed"), status_code=303)
+    if not d:
+        raise HTTPException(404)
+    remove_from_client = _form_bool(form, "remove_from_client")
+    delete_files = _form_bool(form, "delete_files") or (d.protocol == "direct" and remove_from_client)
+    cfg = await session.get(DownloadClient, d.download_client_id) if d.download_client_id else None
+    if remove_from_client and cfg and d.client_id and d.status != "imported":
+        try:
+            async with downloadclients.make_client(cfg) as dc:
+                await dc.remove(d.client_id, delete_files=delete_files)
+        except Exception as exc:
+            log.warning("remove %s from %s: %s", d.title, cfg.name, exc)
+    await session.delete(d)
+    await session.commit()
+    return RedirectResponse(url("/activity/queue?notice=Removed+from+the+queue"), status_code=303)
 
 
 @protected.post("/activity/queue/{download_id}/import")
@@ -529,6 +544,24 @@ async def release_search_page(request: Request, release_id: int, session: AsyncS
     prefs = await get_prefs(session)
     await session.commit()
     return render(request, "releases/search.html", release=r, artist=artist, candidates=candidates, indexers=[i for i in idx if i.enable_interactive_search], prefs=prefs)
+
+
+@protected.post("/releases/{release_id}/search/auto")
+async def release_search_auto(release_id: int, session: AsyncSession = Depends(get_session)):
+    """Lidarr's automatic search: search everything and grab the best accepted result."""
+    r = await session.get(Release, release_id)
+    if not r:
+        raise HTTPException(404)
+    try:
+        dl = await acquisition.grab_best(session, r)
+    except acquisition.GrabError as exc:
+        await session.commit()
+        return RedirectResponse(url(f"/releases/{release_id}/search?notice=Grab+failed:+{str(exc)[:120]}"), status_code=303)
+    await session.commit()
+    if dl is None:
+        return RedirectResponse(url(f"/releases/{release_id}/search?notice=No+acceptable+result+for+an+automatic+grab;+pick+one+by+hand+or+adjust+the+profile"), status_code=303)
+    scheduler.wake()
+    return RedirectResponse(url(f"/activity/queue?notice={dl.title[:60]}+sent+to+the+download+client"), status_code=303)
 
 
 @protected.post("/releases/{release_id}/grab")
