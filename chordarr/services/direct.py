@@ -299,6 +299,38 @@ def start(client: DownloadClient, source: str, album_id: str, title: str) -> Job
     return job
 
 
+async def resume(session) -> int:
+    """Restart direct downloads that were in flight when the process stopped.
+
+    Jobs live in memory, so a restart (deploy, reboot) loses them; the Download rows
+    remember what was asked. Each one is started again on the same source and album;
+    streamrip overwrites what it had already written.
+    """
+    from sqlalchemy import select
+
+    from chordarr.models import Download
+
+    rows = (await session.scalars(select(Download).where(Download.protocol == "direct", Download.status.in_(("grabbed", "downloading"))))).all()
+    restarted = 0
+    for d in rows:
+        if d.client_id and d.client_id in JOBS:
+            continue
+        try:
+            client_id, source, album_id = parse_ref(d.download_url)
+        except ValueError:
+            continue
+        client = await session.get(DownloadClient, client_id)
+        if client is None or not client.enabled:
+            d.status, d.message = "failed", "direct source removed while downloading"
+            continue
+        job = start(client, source, album_id, d.title)
+        d.client_id = job.id
+        d.status, d.progress, d.message = "grabbed", 0.0, "resumed after restart"
+        restarted += 1
+    await session.flush()
+    return restarted
+
+
 class StreamripClient:
     """The download-client interface (test, add, items, remove) over the job registry."""
 

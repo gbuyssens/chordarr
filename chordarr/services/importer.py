@@ -370,6 +370,8 @@ async def process_queue(session: AsyncSession) -> dict:
                 if item:
                     d.client_id = item.client_id
             if item is None:
+                if d.protocol == "direct":
+                    continue  # in-memory job lost (restart): direct.resume() restarts it at startup
                 if d.status == "grabbed" and utcnow() - d.added_at < timedelta(minutes=15):
                     continue  # the client may still be fetching metadata
                 _fail(session, d, "no longer in the download client")

@@ -208,8 +208,21 @@ def _due(name: str, every: timedelta) -> bool:
     return last is None or utcnow() - last > every
 
 
+async def resume_direct() -> None:
+    from chordarr.services import direct
+
+    async with session_scope() as session:
+        n = await direct.resume(session)
+    if n:
+        log.info("resumed %s direct download(s) after restart", n)
+
+
 async def loop() -> None:
     await asyncio.sleep(5)
+    try:
+        await run_job("resume", resume_direct)
+    except Exception:
+        log.exception("resume failed")
     while True:
         try:
             if _due("refresh", timedelta(minutes=15)):

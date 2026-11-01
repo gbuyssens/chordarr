@@ -173,3 +173,25 @@ async def test_monitored_missing_lists_only_what_search_monitored_should_grab():
         got = {r.title for r in await acquisition.monitored_missing(session, a.id)}
         assert got == {"Polak", "Feat"}
         await session.rollback()
+
+
+async def test_resume_restarts_in_flight_direct_downloads(monkeypatch):
+    from sqlalchemy import delete
+
+    from chordarr.db import SessionLocal, init_db
+    from chordarr.models import Download
+
+    await init_db()
+    async with SessionLocal() as session:
+        await session.execute(delete(Download))
+        dc = DownloadClient(name="Comptes", implementation="streamrip", url="streamrip://local", enabled=True, settings={"deezer_arl": "x"})
+        session.add(dc)
+        await session.flush()
+        d = Download(release_id=None, download_client_id=dc.id, title="X - Y [Deezer FLAC]", guid=f"direct:{dc.id}:deezer:42", download_url=f"direct:{dc.id}:deezer:42", protocol="direct", client_id="rip-lost", status="downloading", progress=0.4)
+        session.add(d)
+        await session.flush()
+        started = []
+        monkeypatch.setattr(direct, "start", lambda cfg, source, album_id, title: (started.append((source, album_id)), direct.JOBS.setdefault("rip-new", direct.Job(id="rip-new", title=title, source=source, album_id=album_id)))[1])
+        n = await direct.resume(session)
+        assert n == 1 and started == [("deezer", "42")] and d.client_id == "rip-new" and d.status == "grabbed"
+        await session.rollback()
