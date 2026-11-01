@@ -1,7 +1,0 @@
-{% extends "base.html" %}{% block title %}Activity · Chordarr{% endblock %}
-{% block content %}
-<h1>Activity</h1>
-<ul class="events">
-{% for e in events %}<li class="ev {{ e.type }}"><time>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</time> <span class="tag">{{ EVENT_TYPES.get(e.type, e.type) }}</span> {% if e.artist_id %}<a href="{{ settings.url_base }}/artists/{{ e.artist_id }}">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}{% if e.body %} <span class="sub small">{{ e.body }}</span>{% endif %}{% if e.notified_at %} <span class="sent" title="notified">✓</span>{% endif %}</li>{% else %}<li class="empty">Nothing happened yet.</li>{% endfor %}
-</ul>
-{% endblock %}

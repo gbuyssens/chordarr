@@ -6,7 +6,8 @@ compilation appearances Lidarr never shows you. Get a release calendar, a wanted
 recommendations built from what you already follow, and notifications anywhere
 (webhook, Discord, Matrix, ntfy).
 
-Chordarr is a single Python service with a built-in web UI and a JSON API. No Docker
+Chordarr is a single Python service with a built-in web UI laid out like the other \*arr
+applications (same sidebar, posters, calendar, wanted list, activity, settings) and a JSON API. No Docker
 required, no Node build, no proprietary metadata proxy: it talks to MusicBrainz, the
 Cover Art Archive, ListenBrainz and Deezer directly.
 
@@ -27,6 +28,7 @@ Cover Art Archive, ListenBrainz and Deezer directly.
 | Metadata source | Lidarr's own metadata server (outages, stale cache) | MusicBrainz live, 1 req/s |
 | Notifications | fixed list of providers | generic webhook + Discord, Matrix, ntfy |
 | Install | .NET runtime | Python ≥ 3.11, one systemd unit |
+| Default port | 8686 | 8585 |
 
 ## Quick start
 
@@ -37,7 +39,7 @@ python3 -m venv .venv && .venv/bin/pip install .
 CHORDARR_ROOT_FOLDER=/path/to/music .venv/bin/chordarr
 ```
 
-Open <http://localhost:8688>. Add an artist, or import everything from Lidarr in
+Open <http://localhost:8585>. Add an artist, or import everything from Lidarr in
 *Settings → Import from Lidarr* (point it at `lidarr.db` or at the Lidarr URL + API key).
 
 For a server install (dedicated user, `/opt/chordarr`, `/var/lib/chordarr`, systemd):
@@ -57,7 +59,7 @@ the data directory. The API key is generated at first start and stored in
 | Variable | Default | Purpose |
 |---|---|---|
 | `CHORDARR_DATA_DIR` | `/var/lib/chordarr` (root) or `~/.config/chordarr` | database, API key, config file |
-| `CHORDARR_PORT` / `CHORDARR_HOST` | `8688` / `0.0.0.0` | listen address |
+| `CHORDARR_PORT` / `CHORDARR_HOST` | `8585` / `0.0.0.0` | listen address |
 | `CHORDARR_URL_BASE` | empty | sub-path when behind a reverse proxy (`/chordarr`) |
 | `CHORDARR_ROOT_FOLDER` | unset | where artist folders live |
 | `CHORDARR_ARTIST_FOLDER_FORMAT` | `{artist}` | artist folder name under the root |

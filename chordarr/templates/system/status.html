@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block title %}Status · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Status</h1>
+<div class="panel"><h3>Health</h3>
+{% if not issues %}<p class="text-success"><svg class="i"><use href="#i-check"/></svg> No issues with your configuration.</p>{% endif %}
+{% for level, msg in issues %}<div class="health {{ level }}"><svg class="i"><use href="#i-exclamation"/></svg> {{ msg }}</div>{% endfor %}</div>
+<div class="panel"><h3>Library</h3><dl class="kv"><dt>Artists</dt><dd>{{ counts.artists }}</dd><dt>Releases</dt><dd>{{ counts.releases }}</dd><dt>Appearances</dt><dd>{{ counts.appearances }}</dd><dt>On disk</dt><dd>{{ counts.have }}</dd></dl></div>
+<div class="panel"><h3>About</h3><dl class="kv">{% for k, v in about.items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl></div>
+<div class="panel"><h3>More</h3><p class="muted">Source and issues: <a href="https://github.com/gbuyssens/chordarr" target="_blank" rel="noopener">github.com/gbuyssens/chordarr</a>. Metadata from MusicBrainz, Cover Art Archive, ListenBrainz and Deezer.</p></div>
+{% endblock %}

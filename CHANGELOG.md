@@ -4,6 +4,10 @@
 
 First release.
 
+- Web UI laid out like the *arr family: sidebar (Artists, Calendar, Activity, Wanted,
+  Settings, System), poster grid with progress bars, artist page with sections per
+  release type, agenda calendar, missing list, history, tasks. Default port 8585.
+
 - Track artists by MusicBrainz id: albums, EPs, singles, plus features, remixes and
   compilation appearances with the exact track and role.
 - Calendar, wanted list, activity timeline.

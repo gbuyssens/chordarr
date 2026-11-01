@@ -43,7 +43,7 @@ Issues = "https://github.com/gbuyssens/chordarr/issues"
 include = ["chordarr*"]
 
 [tool.setuptools.package-data]
-chordarr = ["templates/*.html", "static/*"]
+chordarr = ["templates/*.html", "templates/*/*.html", "static/*"]
 
 [tool.ruff]
 line-length = 110

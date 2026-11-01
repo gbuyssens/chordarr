@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}History · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar"><div class="right"><form method="get" class="inline"><select name="type" onchange="this.form.submit()"><option value="">Filter: All events</option>{% for k, v in EVENT_TYPES.items() %}<option value="{{ k }}" {{ 'selected' if type == k }}>{{ v }}</option>{% endfor %}</select></form></div></div>
+{% endblock %}
+{% block content %}
+<table class="table">
+<thead><tr><th>Date</th><th>Event</th><th>Details</th><th></th></tr></thead>
+<tbody>
+{% for e in events %}
+<tr class="ev {{ e.type }}">
+  <td class="muted small nowrap">{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+  <td><span class="label {{ 'danger' if e.type == 'error' else ('info' if e.type in ('release_found','release_upcoming','appearance_found') else ('success' if e.type == 'release_imported' else '')) }}">{{ EVENT_TYPES.get(e.type, e.type) }}</span></td>
+  <td>{% if e.artist_id %}<a href="{{ base }}/artists/{{ e.artist_id }}">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}{% if e.body %}<div class="muted small">{{ e.body }}</div>{% endif %}</td>
+  <td class="col-actions">{% if e.notified_at %}<svg class="i success" title="notified"><use href="#i-check"/></svg>{% endif %}</td>
+</tr>
+{% else %}<tr><td colspan="4" class="muted center">Nothing happened yet.</td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

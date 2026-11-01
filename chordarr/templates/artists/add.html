@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block title %}Add New Artist · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Add New Artist</h1>
+<form method="get" class="bigsearch"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" value="{{ q }}" placeholder="e.g. Damso, or a MusicBrainz id" autofocus></form>
+{% if not q %}<p class="muted center">It is easy to add a new artist, just start typing the name of the artist you want to add.<br>You can also paste a MusicBrainz artist id.</p>{% endif %}
+{% if q and not results %}<p class="muted center">Couldn't find any results for “{{ q }}”.</p>{% endif %}
+{% for r in results %}
+<div class="panel addresult">
+  <div class="info">
+    <div class="title">{{ r.name }} {% if r.disambiguation %}<span class="muted">({{ r.disambiguation }})</span>{% endif %}</div>
+    <div class="muted small">{{ r.type or '—' }}{% if r.country %} · {{ r.country }}{% endif %} · <a target="_blank" rel="noopener" href="https://musicbrainz.org/artist/{{ r.mbid }}">MusicBrainz <svg class="i xs"><use href="#i-external"/></svg></a></div>
+  </div>
+  {% if r.mbid in tracked %}
+  <a class="btn" href="{{ base }}/artists/{{ tracked[r.mbid] }}"><svg class="i"><use href="#i-check"/></svg> Already added</a>
+  {% else %}
+  <form method="post" class="addform">
+    <input type="hidden" name="mbid" value="{{ r.mbid }}">
+    <label class="check"><input type="checkbox" name="monitor_album" checked> Albums</label>
+    <label class="check"><input type="checkbox" name="monitor_ep" checked> EPs</label>
+    <label class="check"><input type="checkbox" name="monitor_single" checked> Singles</label>
+    <label class="check"><input type="checkbox" name="monitor_appearances" checked> Features</label>
+    <button class="btn success"><svg class="i"><use href="#i-plus"/></svg> Add</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

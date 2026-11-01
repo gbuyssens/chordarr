@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}Tasks · Chordarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Scheduled tasks</h1>
+<table class="table">
+<thead><tr><th>Name</th><th>Interval</th><th>Last execution</th><th></th></tr></thead>
+<tbody>
+{% for key, name, interval, desc in tasks %}
+<tr><td>{{ name }}<div class="muted small">{{ desc }}</div>{% if jobs.errors.get(key) %}<div class="text-danger small">{{ jobs.errors[key] }}</div>{% endif %}</td>
+<td class="muted">{{ interval }}</td>
+<td class="muted small">{{ jobs.last.get(key, 'never')|replace('T',' ') }}{% if key in jobs.running %} · <span class="text-info">running</span>{% endif %}</td>
+<td class="col-actions"><form method="post" action="{{ base }}/system/tasks/{{ key }}"><button class="icon-btn" title="Run now" {% if key in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-play"/></svg></button></form></td></tr>
+{% endfor %}
+</tbody></table>
+{% endblock %}
