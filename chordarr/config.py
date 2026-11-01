@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     root_folder: Path | None = None
     artist_folder_format: str = "{artist}"
     album_folder_format: str = "{album} ({year})"
+    track_format: str = "{nn} - {title}"  # also {track}, {disc}, {artist}, {album}, {year}
+
+    # Acquisition. Nothing is grabbed on its own until auto_grab is on; the UI can override
+    # auto_grab and quality_profile at runtime (stored in the database).
+    auto_grab: bool = False
+    quality_profile: str = "lossless"  # lossless | high | any — the minimum accepted; best wins
+    import_mode: str = "auto"  # auto (hardlink torrents, move usenet) | hardlink | copy | move
+    search_interval_hours: float = 6
+    rss_interval_minutes: float = 30
+    queue_poll_seconds: float = 60
 
     # Upstream services
     musicbrainz_url: str = "https://musicbrainz.org/ws/2"

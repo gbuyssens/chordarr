@@ -96,6 +96,7 @@ class Release(Base):
     path: Mapped[str | None] = mapped_column(String, nullable=True)
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     track_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_search_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -144,7 +145,7 @@ class Event(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str] = mapped_column(String, index=True)
     # artist_added | release_found | appearance_found | release_imported | release_upcoming
-    # | library_scanned | test | error
+    # | release_grabbed | download_failed | import_failed | library_scanned | test | error
     artist_id: Mapped[int | None] = mapped_column(ForeignKey("artists.id", ondelete="SET NULL"), nullable=True)
     release_id: Mapped[int | None] = mapped_column(ForeignKey("releases.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str] = mapped_column(String)
@@ -189,3 +190,133 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# --- acquisition (0.2) ----------------------------------------------------------------------
+
+
+class Indexer(Base):
+    """A Torznab or Newznab endpoint, usually one Prowlarr pushes through the Lidarr API."""
+
+    __tablename__ = "indexers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    implementation: Mapped[str] = mapped_column(String, default="Torznab")  # Torznab | Newznab
+    enable_rss: Mapped[bool] = mapped_column(Boolean, default=True)
+    enable_automatic_search: Mapped[bool] = mapped_column(Boolean, default=True)
+    enable_interactive_search: Mapped[bool] = mapped_column(Boolean, default=True)
+    priority: Mapped[int] = mapped_column(Integer, default=25)  # 1 (first) … 50, like Lidarr
+
+    base_url: Mapped[str] = mapped_column(String)
+    api_path: Mapped[str] = mapped_column(String, default="/api")
+    api_key: Mapped[str] = mapped_column(String, default="")
+    categories: Mapped[list] = mapped_column(JSON, default=lambda: [3000, 3010, 3040])
+    minimum_seeders: Mapped[int] = mapped_column(Integer, default=1)
+    seed_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    seed_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    discography_seed_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    early_release_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    additional_parameters: Mapped[str] = mapped_column(String, default="")
+    reject_blocklisted_hashes: Mapped[bool] = mapped_column(Boolean, default=False)
+    download_client_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    # Lidarr fields Chordarr has no column for, kept so that Prowlarr reads back what it wrote.
+    extra_fields: Mapped[dict] = mapped_column(JSON, default=dict)
+    # From ``t=caps``: {"music_params": [...], "search_params": [...], "categories": {...}}
+    capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    last_rss: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @property
+    def protocol(self) -> str:
+        return "usenet" if self.implementation == "Newznab" else "torrent"
+
+    @property
+    def api_url(self) -> str:
+        return self.base_url.rstrip("/") + "/" + (self.api_path or "/api").strip("/")
+
+
+class DownloadClient(Base):
+    __tablename__ = "download_clients"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    implementation: Mapped[str] = mapped_column(String)  # qbittorrent | sabnzbd
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    priority: Mapped[int] = mapped_column(Integer, default=1)  # lowest number wins among clients of a protocol
+    url: Mapped[str] = mapped_column(String)  # http://host:port[/base]
+    username: Mapped[str] = mapped_column(String, default="")
+    password: Mapped[str] = mapped_column(String, default="")
+    api_key: Mapped[str] = mapped_column(String, default="")  # SABnzbd
+    category: Mapped[str] = mapped_column(String, default="chordarr")
+    # Path the client reports → path Chordarr sees (empty when both run on the same machine).
+    remote_path: Mapped[str] = mapped_column(String, default="")
+    local_path: Mapped[str] = mapped_column(String, default="")
+    remove_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def protocol(self) -> str:
+        return "usenet" if self.implementation == "sabnzbd" else "torrent"
+
+
+class Download(Base):
+    """One grabbed release on its way through a download client: the queue."""
+
+    __tablename__ = "downloads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    release_id: Mapped[int | None] = mapped_column(ForeignKey("releases.id", ondelete="SET NULL"), nullable=True, index=True)
+    indexer_id: Mapped[int | None] = mapped_column(ForeignKey("indexers.id", ondelete="SET NULL"), nullable=True)
+    download_client_id: Mapped[int | None] = mapped_column(ForeignKey("download_clients.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String)
+    guid: Mapped[str] = mapped_column(String, default="")
+    download_url: Mapped[str] = mapped_column(Text, default="")
+    protocol: Mapped[str] = mapped_column(String, default="torrent")
+    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seeders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality: Mapped[str] = mapped_column(String, default="unknown")
+    client_id: Mapped[str | None] = mapped_column(String, nullable=True)  # torrent hash or SABnzbd nzo_id
+    # grabbed | downloading | completed | importing | imported | failed | warning
+    status: Mapped[str] = mapped_column(String, default="grabbed", index=True)
+    progress: Mapped[float] = mapped_column(Float, default=0)
+    output_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    message: Mapped[str] = mapped_column(Text, default="")
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    release: Mapped[Release | None] = relationship(lazy="selectin")
+
+    @property
+    def active(self) -> bool:
+        return self.status in ("grabbed", "downloading", "completed", "importing")
+
+
+class MediaServer(Base):
+    __tablename__ = "media_servers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    type: Mapped[str] = mapped_column(String)  # jellyfin | plex
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    url: Mapped[str] = mapped_column(String)
+    api_key: Mapped[str] = mapped_column(String, default="")  # Jellyfin API key or Plex token
+    section: Mapped[str] = mapped_column(String, default="")  # Plex library section id (optional)
+    # Path Chordarr sees → path the media server sees (empty when identical).
+    local_path: Mapped[str] = mapped_column(String, default="")
+    remote_path: Mapped[str] = mapped_column(String, default="")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Tag(Base):
+    """Lidarr-compatible tags; Prowlarr may attach them to the indexers it pushes."""
+
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(String, unique=True)

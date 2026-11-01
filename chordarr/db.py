@@ -40,7 +40,7 @@ async def _migrate(conn) -> None:
             "image_url": "VARCHAR",
             "monitor_appearances": "BOOLEAN DEFAULT 1",
         },
-        "releases": {"cover_url": "VARCHAR"},
+        "releases": {"cover_url": "VARCHAR", "last_search_at": "DATETIME"},
     }
     for table, columns in wanted.items():
         rows = await conn.execute(text(f"PRAGMA table_info({table})"))
