@@ -30,7 +30,7 @@
 <div class="layout">
 <nav class="sidebar">
   <div class="group">{{ nav('/artists', 'user', 'Artists') }}
-    {% if path.startswith(base ~ '/artists') %}<div class="subs">{{ sub('/artists/add', 'Add New') }}{{ sub('/artists/import', 'Library Import') }}{{ sub('/artists/discover', 'Discover') }}</div>{% endif %}</div>
+    {% if path.startswith(base ~ '/artists') %}<div class="subs">{{ sub('/artists/add', 'Add New') }}{{ sub('/artists/import', 'Library Import') }}{{ sub('/artists/features', 'Features') }}{{ sub('/artists/discover', 'Discover') }}</div>{% endif %}</div>
   <div class="group">{{ nav('/calendar', 'calendar', 'Calendar') }}</div>
   <div class="group">{{ nav('/activity', 'activity', 'Activity') }}
     {% if path.startswith(base ~ '/activity') %}<div class="subs">{{ sub('/activity/queue', 'Queue') }}{{ sub('/activity/history', 'History') }}</div>{% endif %}</div>

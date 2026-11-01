@@ -28,6 +28,7 @@ from chordarr.config import settings
 from chordarr.db import get_session
 from chordarr.metadata import musicbrainz as mb
 from chordarr.models import (
+    Appearance,
     Artist,
     Download,
     DownloadClient,
@@ -227,6 +228,58 @@ async def import_lidarr_ui(db_path: str = Form(""), lidarr_url: str = Form(""), 
     return RedirectResponse(url(f"/artists?notice={added}+artists+imported,+{skipped}+skipped.+Refresh+running."), status_code=303)
 
 
+@protected.get("/artists/features", response_class=HTMLResponse)
+async def features_page(request: Request, filter: str = "missing", session: AsyncSession = Depends(get_session)):
+    """Every appearance (feature, remix, compilation slot) of every tracked artist, like a Wanted view."""
+    q = select(Release).where(Release.kind == "appearance")
+    if filter == "missing":
+        q = q.where(Release.monitored.is_(True), Release.status.in_(("missing", "partial")), Release.first_release_date <= date.today())
+    elif filter == "monitored":
+        q = q.where(Release.monitored.is_(True))
+    elif filter == "have":
+        q = q.where(Release.status == "have")
+    rows = (await session.scalars(q.order_by(Release.first_release_date.desc()).limit(1000))).all()
+    artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
+    tracks: dict[int, list] = {}
+    for ap in (await session.scalars(select(Appearance).where(Appearance.release_id.in_([r.id for r in rows] or [0])))).all():
+        tracks.setdefault(ap.release_id, []).append(ap)
+    counts = {
+        "all": await session.scalar(select(func.count(Release.id)).where(Release.kind == "appearance")),
+        "monitored": await session.scalar(select(func.count(Release.id)).where(Release.kind == "appearance", Release.monitored.is_(True))),
+        "have": await session.scalar(select(func.count(Release.id)).where(Release.kind == "appearance", Release.status == "have")),
+    }
+    return render(request, "artists/features.html", releases=rows, artists=artists, tracks=tracks, filter=filter, counts=counts)
+
+
+@protected.post("/artists/features/search-all")
+async def features_search_all():
+    scheduler.trigger_appearance_search()
+    return RedirectResponse(url("/artists/features?notice=Searching+every+monitored+missing+appearance+in+the+background;+grabs+show+up+in+Activity+→+Queue"), status_code=303)
+
+
+@protected.post("/artists/features/monitor-all")
+async def features_monitor_all(monitored: str = Form("1"), session: AsyncSession = Depends(get_session)):
+    rows = (await session.scalars(select(Release).where(Release.kind == "appearance"))).all()
+    on = monitored == "1"
+    for r in rows:
+        roles = {ap.role for ap in r.appearances}
+        if roles == {"compilation"}:
+            continue  # compilation-only slots stay as they are
+        r.monitored = on
+    await session.commit()
+    return RedirectResponse(url(f"/artists/features?notice={'Monitoring' if on else 'Unmonitoring'}+every+feature+and+remix+appearance"), status_code=303)
+
+
+@protected.post("/artists/discover/add-top")
+async def discover_add_top(count: int = Form(5), session: AsyncSession = Depends(get_session)):
+    recs = (await session.scalars(select(Recommendation).where(Recommendation.dismissed.is_(False), Recommendation.mbid.is_not(None)).order_by(Recommendation.score.desc()).limit(max(1, min(count, 25))))).all()
+    mbids = [r.mbid for r in recs]
+    if not mbids:
+        return RedirectResponse(url("/artists/discover?notice=No+recommendation+with+a+MusicBrainz+id+to+add"), status_code=303)
+    scheduler.trigger_add_and_search(mbids)
+    return RedirectResponse(url(f"/artists/discover?notice=Adding+{len(mbids)}+artists+and+grabbing+their+monitored+releases+in+the+background"), status_code=303)
+
+
 @protected.get("/artists/discover", response_class=HTMLResponse)
 async def discover_page(request: Request, session: AsyncSession = Depends(get_session)):
     recs = (await session.scalars(select(Recommendation).where(Recommendation.dismissed.is_(False)).order_by(Recommendation.score.desc()).limit(60))).all()
@@ -242,6 +295,16 @@ async def discover_action(rec_id: int, action: str, session: AsyncSession = Depe
         r.dismissed = True
         await session.commit()
         return RedirectResponse(url("/artists/discover"), status_code=303)
+    if action == "add-search":
+        if not r.mbid:
+            found = await mb.search_artists(r.name, limit=5)
+            exact = [f for f in found if f.name.casefold() == r.name.casefold()]
+            if not exact:
+                return RedirectResponse(url(f"/artists/add?q={r.name}"), status_code=303)
+            r.mbid = exact[0].mbid
+            await session.commit()
+        scheduler.trigger_add_and_search([r.mbid])
+        return RedirectResponse(url(f"/artists/discover?notice=Adding+{r.name}+and+grabbing+its+monitored+releases+in+the+background"), status_code=303)
     mbid = r.mbid
     if not mbid:
         found = await mb.search_artists(r.name, limit=5)

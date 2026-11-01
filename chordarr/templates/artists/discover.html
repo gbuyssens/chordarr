@@ -1,6 +1,12 @@
 {% extends "base.html" %}{% block title %}Discover · Chordarr{% endblock %}
 {% block toolbar %}
-<div class="toolbar"><div class="left"><form method="post" action="{{ base }}/system/tasks/recommendations"><button class="tool" {% if 'recommendations' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-sync"/></svg><span>Rebuild</span></button></form></div></div>
+<div class="toolbar">
+  <div class="left">
+    <form method="post" action="{{ base }}/system/tasks/recommendations"><button class="tool" {% if 'recommendations' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-sync"/></svg><span>Rebuild</span></button></form>
+    <div class="tool-sep"></div>
+    <form method="post" action="{{ base }}/artists/discover/add-top" class="inline"><select name="count"><option value="3">Top 3</option><option value="5" selected>Top 5</option><option value="10">Top 10</option><option value="20">Top 20</option></select><button class="tool" {% if 'discover:add' in jobs.running %}disabled{% endif %} title="Add the best recommendations as artists, then grab everything they have monitored"><svg class="i"><use href="#i-download"/></svg><span>Add &amp; Grab</span></button></form>
+  </div>
+</div>
 {% endblock %}
 {% block content %}
 <h1 class="page-title">Discover <span class="muted small">artists your artists point to, on ListenBrainz and Deezer</span></h1>
@@ -12,6 +18,7 @@
   <div class="caption"><div class="name">{{ r.name }}</div><div class="muted small">because of {{ r.reasons|map(attribute='artist')|unique|list|join(', ') }}</div></div>
   <div class="actions">
     <form method="post" action="{{ base }}/artists/discover/{{ r.id }}/add"><button class="btn sm success"><svg class="i"><use href="#i-plus"/></svg> Add</button></form>
+    <form method="post" action="{{ base }}/artists/discover/{{ r.id }}/add-search"><button class="btn sm primary" title="Add and grab its monitored releases"><svg class="i"><use href="#i-download"/></svg></button></form>
     <form method="post" action="{{ base }}/artists/discover/{{ r.id }}/dismiss"><button class="btn sm"><svg class="i"><use href="#i-times"/></svg></button></form>
   </div>
 </div>

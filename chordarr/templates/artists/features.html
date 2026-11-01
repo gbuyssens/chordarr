@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}Features · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="left">
+    <form method="post" action="{{ base }}/artists/features/search-all"><button class="tool" {% if 'search:appearances' in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search All</span></button></form>
+    <div class="tool-sep"></div>
+    <form method="post" action="{{ base }}/artists/features/monitor-all"><input type="hidden" name="monitored" value="1"><button class="tool"><svg class="i on"><use href="#i-bookmark"/></svg><span>Monitor All</span></button></form>
+    <form method="post" action="{{ base }}/artists/features/monitor-all"><input type="hidden" name="monitored" value="0"><button class="tool"><svg class="i off"><use href="#i-bookmark"/></svg><span>Unmonitor All</span></button></form>
+  </div>
+  <div class="right">
+    <form method="get" class="inline"><select name="filter" onchange="this.form.submit()"><option value="missing" {{ 'selected' if filter=='missing' }}>Filter: Missing</option><option value="monitored" {{ 'selected' if filter=='monitored' }}>Monitored</option><option value="have" {{ 'selected' if filter=='have' }}>On disk</option><option value="all" {{ 'selected' if filter=='all' }}>Everything</option></select></form>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">Features &amp; appearances <span class="muted small">{{ counts.all }} tracked · {{ counts.monitored }} monitored · {{ counts.have }} on disk · {{ releases|length }} shown</span></h1>
+<p class="help" style="margin-top:-10px">Every release where one of your artists is credited on a track without owning the record: features, remixes, compilation slots. <em>Search All</em> grabs the best result of each monitored, missing, released one. Compilation-only slots are listed but not monitored unless you switch them on.</p>
+<table class="table releases">
+<thead><tr><th></th><th></th><th>Release</th><th>Type</th><th>Release date</th><th>Status</th><th></th></tr></thead>
+<tbody>{% set show_artist = True %}{% for r in releases %}{% include "_release_row.html" %}{% else %}<tr><td colspan="7" class="muted center">Nothing here with this filter.</td></tr>{% endfor %}</tbody>
+</table>
+{% endblock %}

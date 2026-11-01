@@ -134,6 +134,52 @@ async def search_release_ids(release_ids: list[int]) -> None:
     await dispatch()
 
 
+async def search_appearances() -> None:
+    """Every monitored, missing, released appearance (feature, remix, compilation slot) of every artist."""
+    from chordarr.models import Release
+
+    async with session_scope() as session:
+        rows = list((await session.scalars(select(Release).where(Release.kind == "appearance"))).all())
+        wanted = [r for r in await acquisition.wanted_releases(session, due_only=False, limit=5000) if r.kind == "appearance"]
+        log.info("appearances: %s tracked, %s to search", len(rows), len(wanted))
+        c = await acquisition.search_releases(session, wanted)
+        log.info("appearance search: %s", c)
+    await dispatch()
+
+
+async def add_and_search(mbids: list[str]) -> None:
+    """Add recommended artists one by one, then grab what they have monitored and missing."""
+    from chordarr.models import Recommendation
+
+    for mbid in mbids:
+        async with session_scope() as session:
+            try:
+                artist = await artist_service.add_artist(session, mbid)
+            except artist_service.ArtistExists:
+                log.info("add_and_search: %s already tracked", mbid)
+                continue
+            except Exception as exc:
+                log.warning("add_and_search: %s failed: %s", mbid, exc)
+                continue
+            await library.scan_artist(session, artist)
+            for rec in (await session.scalars(select(Recommendation).where(Recommendation.mbid == mbid))).all():
+                await session.delete(rec)
+            artist_id = artist.id
+        async with session_scope() as session:
+            releases = await acquisition.monitored_missing(session, artist_id)
+            c = await acquisition.search_releases(session, releases)
+            log.info("add_and_search %s: %s", mbid, c)
+        await dispatch()
+
+
+def trigger_appearance_search() -> asyncio.Task:
+    return asyncio.create_task(run_job("search:appearances", search_appearances))
+
+
+def trigger_add_and_search(mbids: list[str]) -> asyncio.Task:
+    return asyncio.create_task(run_job("discover:add", lambda: add_and_search(mbids)))
+
+
 def trigger_artist_search(artist_id: int) -> asyncio.Task:
     return asyncio.create_task(run_job(f"search:artist:{artist_id}", lambda: search_artist(artist_id)))
 
