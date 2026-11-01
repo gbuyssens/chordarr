@@ -2,17 +2,35 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+
+class AddOptions(BaseModel):
+    monitor: str = "all"  # all | future | missing | existing | first | latest | none
+    searchForMissingAlbums: bool = False
 
 
 class ArtistIn(BaseModel):
-    mbid: str = Field(alias="foreignArtistId", validation_alias="mbid")
+    """Accepts Chordarr's own body and Lidarr's (``foreignArtistId``, ``addOptions``…)."""
+
+    mbid: str | None = None
+    foreignArtistId: str | None = None
     path: str | None = None
+    rootFolderPath: str | None = None
     monitored: bool = True
     monitor_types: list[str] = ["Album", "EP", "Single"]
     monitor_appearances: bool = True
+    monitor: str | None = None
+    monitorNewItems: str = "all"
+    addOptions: AddOptions | None = None
 
-    model_config = {"populate_by_name": True}
+    @property
+    def artist_mbid(self) -> str:
+        return (self.mbid or self.foreignArtistId or "").strip()
+
+    @property
+    def monitor_mode(self) -> str:
+        return self.monitor or (self.addOptions.monitor if self.addOptions else "all")
 
 
 class ArtistPatch(BaseModel):

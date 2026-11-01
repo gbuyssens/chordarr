@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import platform
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chordarr import __version__
-from chordarr.api import schemas
+from chordarr.api import lidarr, schemas
 from chordarr.api.auth import require_api_key
 from chordarr.config import settings
 from chordarr.db import get_session
@@ -26,12 +26,13 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
 
 
-def artist_out(a: Artist) -> schemas.ArtistOut:
+def artist_out(a: Artist) -> dict:
+    """Chordarr's fields plus Lidarr's, so both kinds of client read what they expect."""
     out = schemas.ArtistOut.model_validate(a)
     out.release_count = sum(1 for r in a.releases if r.kind == "own")
     out.appearance_count = sum(1 for r in a.releases if r.kind == "appearance")
     out.have_count = sum(1 for r in a.releases if r.status == "have")
-    return out
+    return {**lidarr.artist_payload(a), **out.model_dump(mode="json")}
 
 
 # --- system -----------------------------------------------------------------------------
@@ -98,22 +99,28 @@ async def artist_lookup(term: str = Query(min_length=1)):
     ]
 
 
-@router.get("/artist", response_model=list[schemas.ArtistOut])
+@router.get("/artist")
 async def list_artists(session: AsyncSession = Depends(get_session)):
     rows = (await session.scalars(select(Artist).order_by(Artist.sort_name))).all()
     return [artist_out(a) for a in rows]
 
 
-@router.post("/artist", response_model=schemas.ArtistOut, status_code=201)
+@router.post("/artist", status_code=201)
 async def create_artist(body: schemas.ArtistIn, session: AsyncSession = Depends(get_session)):
+    if not body.artist_mbid:
+        raise HTTPException(422, "mbid (or foreignArtistId) is required")
+    if body.monitor_mode not in artist_service.MONITOR_MODES:
+        raise HTTPException(422, f"monitor must be one of {', '.join(artist_service.MONITOR_MODES)}")
     try:
         artist = await artist_service.add_artist(
             session,
-            body.mbid,
+            body.artist_mbid,
             path=body.path,
             monitored=body.monitored,
             monitor_types=body.monitor_types,
             monitor_appearances=body.monitor_appearances,
+            monitor=body.monitor_mode,
+            monitor_new_items=body.monitorNewItems,
         )
     except artist_service.ArtistExists as exc:
         raise HTTPException(409, f"{exc} is already tracked") from exc
@@ -124,7 +131,7 @@ async def create_artist(body: schemas.ArtistIn, session: AsyncSession = Depends(
     return artist_out(artist)
 
 
-@router.get("/artist/{artist_id}", response_model=schemas.ArtistOut)
+@router.get("/artist/{artist_id}")
 async def get_artist(artist_id: int, session: AsyncSession = Depends(get_session)):
     a = await session.get(Artist, artist_id)
     if not a:
@@ -132,13 +139,32 @@ async def get_artist(artist_id: int, session: AsyncSession = Depends(get_session
     return artist_out(a)
 
 
-@router.patch("/artist/{artist_id}", response_model=schemas.ArtistOut)
+@router.patch("/artist/{artist_id}")
 async def patch_artist(artist_id: int, body: schemas.ArtistPatch, session: AsyncSession = Depends(get_session)):
     a = await session.get(Artist, artist_id)
     if not a:
         raise HTTPException(404)
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(a, k, v)
+    await session.commit()
+    return artist_out(a)
+
+
+@router.put("/artist/{artist_id}")
+async def put_artist(artist_id: int, body: dict, session: AsyncSession = Depends(get_session)):
+    """Lidarr clients edit with PUT and the full object; only the editable fields are read."""
+    a = await session.get(Artist, artist_id)
+    if not a:
+        raise HTTPException(404)
+    if "monitored" in body:
+        a.monitored = bool(body["monitored"])
+    if body.get("monitorNewItems") in ("all", "none"):
+        a.monitor_new_items = body["monitorNewItems"]
+    if body.get("path"):
+        a.path = body["path"]
+    for k in ("monitor_types", "monitor_appearances"):
+        if k in body:
+            setattr(a, k, body[k])
     await session.commit()
     return artist_out(a)
 
@@ -212,19 +238,24 @@ async def patch_release(release_id: int, body: schemas.ReleasePatch, session: As
     return r
 
 
-@router.get("/calendar", response_model=list[schemas.ReleaseOut])
+@router.get("/calendar")
 async def calendar(
-    start: date | None = None,
-    end: date | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
     monitored_only: bool = True,
+    unmonitored: bool = False,
+    includeArtist: bool = True,
     session: AsyncSession = Depends(get_session),
 ):
-    start = start or date.today() - timedelta(days=30)
-    end = end or date.today() + timedelta(days=90)
-    q = select(Release).where(Release.first_release_date >= start, Release.first_release_date <= end)
-    if monitored_only:
+    """Lidarr-shaped albums (plus Chordarr's fields) between two dates; Lidarr's parameters accepted."""
+    start_d = (start.date() if start else date.today() - timedelta(days=30))
+    end_d = (end.date() if end else date.today() + timedelta(days=90))
+    q = select(Release).where(Release.first_release_date >= start_d, Release.first_release_date <= end_d)
+    if monitored_only and not unmonitored:
         q = q.where(Release.monitored.is_(True))
-    return (await session.scalars(q.order_by(Release.first_release_date))).all()
+    rows = (await session.scalars(q.order_by(Release.first_release_date))).all()
+    artists = {a.id: a for a in (await session.scalars(select(Artist))).all()}
+    return [{**lidarr.album_payload(r, artists.get(r.artist_id), include_artist=includeArtist), **schemas.ReleaseOut.model_validate(r).model_dump(mode="json")} for r in rows]
 
 
 @router.get("/wanted", response_model=list[schemas.ReleaseOut])
@@ -306,7 +337,7 @@ async def dismiss_recommendation(rec_id: int, session: AsyncSession = Depends(ge
     return r
 
 
-@router.post("/recommendation/{rec_id}/add", response_model=schemas.ArtistOut)
+@router.post("/recommendation/{rec_id}/add")
 async def add_recommendation(rec_id: int, session: AsyncSession = Depends(get_session)):
     r = await session.get(Recommendation, rec_id)
     if not r:

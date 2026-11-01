@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}Updates · Chordarr{% endblock %}
+{% block toolbar %}
+<div class="toolbar"><div class="left"><form method="post" action="{{ base }}/system/updates/check"><button class="tool"><svg class="i"><use href="#i-sync"/></svg><span>Check now</span></button></form></div></div>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">Updates</h1>
+{% if newer %}<div class="health warning"><svg class="i"><use href="#i-exclamation"/></svg> Chordarr {{ latest }} is available, you run {{ version }}. Native install: <code>git pull</code> then <code>deploy/install.sh</code>; Docker: pull the new image.</div>
+{% elif latest %}<p class="text-success"><svg class="i"><use href="#i-check"/></svg> You run the latest release ({{ version }}).</p>
+{% else %}<p class="muted">No release information (GitHub unreachable, or no release yet).</p>{% endif %}
+{% for r in releases %}
+<div class="panel"><h3>{{ r.version }} <span class="muted small">{{ (r.releaseDate or '')[:10] }}{% if r.installed %} · installed{% endif %}{% if r.latest %} · latest{% endif %}</span></h3>
+{% if r.changes.new %}<ul>{% for c in r.changes.new %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+<p class="small"><a href="{{ r.url }}" target="_blank" rel="noopener">Release page <svg class="i xs"><use href="#i-external"/></svg></a></p></div>
+{% endfor %}
+{% endblock %}

@@ -57,6 +57,8 @@ class Artist(Base):
     # Which of the artist's own release types to watch. JSON list of primary types.
     monitor_types: Mapped[list] = mapped_column(JSON, default=lambda: ["Album", "EP", "Single"])
     monitor_appearances: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Lidarr's "monitor new items": all | none. New releases found at refresh follow it.
+    monitor_new_items: Mapped[str] = mapped_column(String, default="all")
 
     added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_refresh: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

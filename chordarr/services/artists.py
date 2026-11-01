@@ -21,6 +21,9 @@ class ArtistExists(Exception):
     pass
 
 
+MONITOR_MODES = ("all", "future", "missing", "existing", "first", "latest", "none")
+
+
 async def add_artist(
     session: AsyncSession,
     mbid: str,
@@ -28,8 +31,18 @@ async def add_artist(
     monitored: bool = True,
     monitor_types: list[str] | None = None,
     monitor_appearances: bool = True,
+    monitor: str = "all",
+    monitor_new_items: str = "all",
     refresh: bool = True,
 ) -> Artist:
+    """Track a new artist.
+
+    ``monitor`` is Lidarr's add option: which of the artist's own releases (of the chosen
+    types) start monitored. ``all``, ``future`` (release date after today), ``missing``
+    (not on disk), ``existing`` (on disk), ``first`` and ``latest`` (one album), ``none``.
+    It is applied once, after the first catalogue fetch and library scan; afterwards
+    ``monitor_new_items`` decides for releases that appear later.
+    """
     existing = await session.scalar(select(Artist).where(Artist.mbid == mbid))
     if existing:
         raise ArtistExists(existing.name)
@@ -48,15 +61,47 @@ async def add_artist(
         monitored=monitored,
         monitor_types=monitor_types or ["Album", "EP", "Single"],
         monitor_appearances=monitor_appearances,
+        monitor_new_items=monitor_new_items if monitor_new_items in ("all", "none") else "all",
     )
     session.add(artist)
     await session.flush()
     add_event(session, "artist_added", f"{artist.name} added", artist=artist)
     if refresh:
         await refresh_artist(session, artist, announce=False)
+        if monitor != "all":
+            from chordarr.services import library
+
+            await session.refresh(artist, ["releases"])
+            await library.scan_artist(session, artist)
+            await apply_monitor_mode(session, artist, monitor)
     # Reload collections so callers can read artist.releases without lazy IO.
     await session.refresh(artist, ["releases", "appearances"])
     return artist
+
+
+async def apply_monitor_mode(session: AsyncSession, artist: Artist, mode: str) -> None:
+    """Set the monitored flag of the artist's own releases according to a Lidarr add option."""
+    if mode not in MONITOR_MODES:
+        raise ValueError(f"unknown monitor option {mode!r}")
+    rows = (await session.scalars(select(Release).where(Release.artist_id == artist.id, Release.kind == "own"))).all()
+    eligible = [r for r in rows if r.primary_type in (artist.monitor_types or []) and not r.secondary_types]
+    today = date.today()
+    chosen: set[int] = set()
+    if mode == "all":
+        chosen = {r.id for r in eligible}
+    elif mode == "future":
+        chosen = {r.id for r in eligible if r.first_release_date and r.first_release_date > today}
+    elif mode == "missing":
+        chosen = {r.id for r in eligible if r.status != "have"}
+    elif mode == "existing":
+        chosen = {r.id for r in eligible if r.status == "have"}
+    elif mode in ("first", "latest"):
+        albums = sorted((r for r in eligible if r.primary_type == "Album" and r.first_release_date), key=lambda r: r.first_release_date)
+        if albums:
+            chosen = {(albums[0] if mode == "first" else albums[-1]).id}
+    for r in rows:
+        r.monitored = r.id in chosen
+    await session.flush()
 
 
 def _role_for(track: mb.TrackCredit, artist_mbid: str, group: mb.ReleaseGroupInfo) -> str:
@@ -80,6 +125,9 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
     become events (and notifications): the first fetch of a new artist is not news.
     """
     counters = {"own_new": 0, "appearance_new": 0, "updated": 0}
+    # The first fetch of an artist (added without refresh, e.g. a Lidarr import) is a
+    # catalogue load, not news: never announce it, whatever the caller asked.
+    announce = announce and artist.last_refresh is not None
     try:
         info = await mb.get_artist(artist.mbid)
         picture = await _fetch_picture(artist, info)
@@ -126,7 +174,10 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
                 artist_id=artist.id,
                 mbid=rg.mbid,
                 kind="own",
-                monitored=artist.monitored and rg.primary_type in (artist.monitor_types or []) and not rg.secondary_types,
+                monitored=artist.monitored
+                and rg.primary_type in (artist.monitor_types or [])
+                and not rg.secondary_types
+                and (announce is False or artist.monitor_new_items != "none"),
                 cover_url=release_group_cover(rg.mbid),
             )
             session.add(rel)
@@ -165,7 +216,7 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
         if is_new_release:
             # Compilations and "best of" slots are noise for most people: present, but not
             # wanted by default. Real features and remixes follow the artist's setting.
-            rel.monitored = artist.monitored and artist.monitor_appearances and roles != {"compilation"}
+            rel.monitored = artist.monitored and artist.monitor_appearances and roles != {"compilation"} and (announce is False or artist.monitor_new_items != "none")
         for track in app.tracks:
             key = (rg.mbid, track.recording_mbid)
             if key in known_appearances:

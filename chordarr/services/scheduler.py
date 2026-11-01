@@ -95,6 +95,18 @@ async def search_wanted(force: bool = False) -> None:
         c = await acquisition.search_wanted(session)
         log.info("search: %s", c)
     await dispatch()
+async def scheduled_backup() -> None:
+    from chordarr.services import backup
+
+    await backup.create("scheduled")
+
+
+def backup_due() -> bool:
+    """Based on the newest scheduled backup on disk, so a restart does not write one."""
+    from chordarr.services import backup
+
+    newest = backup.newest("scheduled")
+    return newest is None or utcnow() - newest > timedelta(days=settings.backup_interval_days)
 
 
 async def dispatch() -> None:
@@ -114,6 +126,7 @@ def trigger(name: str) -> asyncio.Task:
         "queue": process_queue,
         "rss": rss_sync,
         "search": lambda: search_wanted(force=True),
+        "backup": lambda: scheduled_backup(),
     }
     return asyncio.create_task(run_job(name, factories[name]))
 
@@ -140,6 +153,8 @@ async def loop() -> None:
             if _due("queue", timedelta(seconds=settings.queue_poll_seconds)):
                 await run_job("queue", process_queue)
             await run_job("notify", dispatch)
+            if settings.backup_interval_days and backup_due():
+                await run_job("backup", scheduled_backup)
         except Exception:
             log.exception("scheduler tick failed")
         try:

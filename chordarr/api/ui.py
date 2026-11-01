@@ -180,11 +180,14 @@ async def add_artist_submit(
     monitor_ep: bool = Form(False),
     monitor_single: bool = Form(False),
     monitor_appearances: bool = Form(False),
+    monitor: str = Form("all"),
     session: AsyncSession = Depends(get_session),
 ):
     types = [t for t, on in (("Album", monitor_album), ("EP", monitor_ep), ("Single", monitor_single)) if on]
+    if monitor not in artist_service.MONITOR_MODES:
+        monitor = "all"
     try:
-        artist = await artist_service.add_artist(session, mbid, monitor_types=types or ["Album"], monitor_appearances=monitor_appearances)
+        artist = await artist_service.add_artist(session, mbid, monitor_types=types or ["Album"], monitor_appearances=monitor_appearances, monitor=monitor)
     except artist_service.ArtistExists as exc:
         existing = await session.scalar(select(Artist).where(Artist.mbid == mbid))
         return RedirectResponse(url(f"/artists/{existing.id}?notice=Already+tracked:+{exc}"), status_code=303)
@@ -770,6 +773,58 @@ async def release_grab_submit(release_id: int, guid: str = Form(...), indexer_id
     await session.commit()
     scheduler.wake()
     return RedirectResponse(url("/activity/queue?notice=Sent+to+the+download+client"), status_code=303)
+@protected.get("/system/backup", response_class=HTMLResponse)
+async def system_backup(request: Request):
+    from chordarr.services import backup
+
+    return render(request, "system/backup.html", backups=backup.list_backups())
+
+
+@protected.post("/system/backup")
+async def system_backup_now():
+    from chordarr.services import backup
+
+    path = await backup.create("manual")
+    return RedirectResponse(url(f"/system/backup?notice=Backup+written:+{path.name}"), status_code=303)
+
+
+@protected.post("/system/backup/delete")
+async def system_backup_delete(kind: str = Form(...), name: str = Form(...)):
+    from chordarr.services import backup
+
+    p = backup.find(kind, name)
+    if p:
+        p.unlink()
+    return RedirectResponse(url("/system/backup?notice=Backup+deleted"), status_code=303)
+
+
+@protected.get("/backup/{kind}/{name}")
+async def backup_download(kind: str, name: str):
+    from fastapi.responses import FileResponse
+
+    from chordarr.services import backup
+
+    p = backup.find(kind, name)
+    if not p:
+        raise HTTPException(404)
+    return FileResponse(p, filename=name, media_type="application/zip")
+
+
+@protected.get("/system/updates", response_class=HTMLResponse)
+async def system_updates(request: Request):
+    from chordarr.services import updates
+
+    releases = await updates.lidarr_shape()
+    latest = updates.latest_version(await updates.check())
+    return render(request, "system/updates.html", releases=releases, latest=latest, newer=updates.is_newer(latest))
+
+
+@protected.post("/system/updates/check")
+async def system_updates_check():
+    from chordarr.services import updates
+
+    await updates.check(force=True)
+    return RedirectResponse(url("/system/updates"), status_code=303)
 
 
 router.include_router(protected)

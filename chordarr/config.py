@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     refresh_interval_hours: float = 12
     scan_interval_hours: float = 6
     recommendations_interval_hours: float = 24
+    backup_interval_days: float = 7  # 0 disables scheduled backups
 
     @property
     def db_path(self) -> Path:

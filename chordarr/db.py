@@ -39,6 +39,7 @@ async def _migrate(conn) -> None:
             "deezer_id": "INTEGER",
             "image_url": "VARCHAR",
             "monitor_appearances": "BOOLEAN DEFAULT 1",
+            "monitor_new_items": "VARCHAR DEFAULT 'all'",
         },
         "releases": {"cover_url": "VARCHAR", "last_search_at": "DATETIME"},
     }

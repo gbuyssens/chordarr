@@ -2,7 +2,7 @@
 
 ## 0.2.0 — 2026-11-01
 
-Acquisition.
+Acquisition and the rest of Lidarr's surface.
 
 - Indexers: Torznab and Newznab, with capabilities probing, music search (artist/album or
   text query), RSS. Prowlarr manages Chordarr as a **Lidarr** application without any
@@ -25,6 +25,18 @@ Acquisition.
   `/api/v1/qualityprofile`.
 - Settings: *Indexers* and *Download Clients* pages, media servers under *Connect*,
   naming formats under *Media Management*.
+
+- Lidarr-compatible API: `/api/v1/artist` and `/api/v1/calendar` carry Lidarr's field
+  names next to Chordarr's; `/api/v1/album`, `/wanted/missing`, `/wanted/cutoff`,
+  `/history`, `/history/since`, `/command`, `/metadataprofile`, `/config/*`,
+  `/system/task`, `/update`, `/system/backup`. `POST /api/v1/artist` accepts Lidarr's body
+  (`foreignArtistId`, `addOptions.monitor`, `monitorNewItems`), `PUT /api/v1/artist/{id}`
+  edits like Lidarr.
+- Monitor options when adding an artist: all, future, missing, existing, first, latest,
+  none; "monitor new items" per artist.
+- iCal feed at `/feed/v1/calendar/Chordarr.ics?apikey=…`.
+- System → Backup (zip of database, API key and config; weekly, retention) and
+  System → Updates (GitHub releases).
 
 ## 0.1.0 — 2026-11-01
 
