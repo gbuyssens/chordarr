@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}Calendar · Chordarr{% endblock %}
+{% block content %}
+<h1>Calendar</h1>
+{% if not months %}<p class="empty">No dated release in the last 3 months or the next 12.</p>{% endif %}
+{% for month, rels in months.items() %}
+<h2>{{ month }}</h2>
+<div class="grid">{% for r in rels %}{% include "_release_card.html" %}{% endfor %}</div>
+{% endfor %}
+{% endblock %}

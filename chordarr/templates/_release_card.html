@@ -1,0 +1,9 @@
+<a class="card release {{ r.status }} {% if not r.monitored %}unmonitored{% endif %}" href="{{ settings.url_base }}/artists/{{ r.artist_id }}#rg-{{ r.mbid }}" title="{{ r.artist_credit }} – {{ r.title }}">
+  <img loading="lazy" src="{{ r.cover_url }}" alt="" onerror="this.classList.add('nocover')">
+  <div class="meta">
+    <div class="title">{{ r.title }}</div>
+    <div class="sub">{{ artists[r.artist_id].name if artists and r.artist_id in artists else r.artist_credit }}</div>
+    <div class="sub small">{{ r.type_label }}{% if r.kind == 'appearance' %} · appearance{% endif %} · {{ r.first_release_date or 'date unknown' }}</div>
+  </div>
+  <span class="badge {{ r.status }}">{{ r.status }}</span>
+</a>

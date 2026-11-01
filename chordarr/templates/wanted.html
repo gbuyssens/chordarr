@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block title %}Wanted · Chordarr{% endblock %}
+{% block content %}
+<h1>Wanted <small>{{ releases|length }}</small></h1>
+<p class="sub">Monitored releases that are out but not in the library. Acquisition (Prowlarr, download clients) arrives in the next release of Chordarr; for now this is your shopping list.</p>
+<div class="grid">{% for r in releases %}{% include "_release_card.html" %}{% endfor %}</div>
+{% endblock %}

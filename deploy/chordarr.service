@@ -1,0 +1,21 @@
+[Unit]
+Description=Chordarr - music collection manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chordarr
+Group=chordarr
+EnvironmentFile=-/etc/chordarr/chordarr.env
+ExecStart=/opt/chordarr/.venv/bin/python -m chordarr
+Restart=on-failure
+RestartSec=5
+UMask=0002
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

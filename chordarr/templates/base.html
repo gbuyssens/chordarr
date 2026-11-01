@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Chordarr{% endblock %}</title>
+<link rel="stylesheet" href="{{ settings.url_base }}/static/style.css">
+<link rel="icon" href="{{ settings.url_base }}/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<nav class="top">
+  <a class="brand" href="{{ settings.url_base }}/"><span class="logo">♪</span> Chordarr</a>
+  <a href="{{ settings.url_base }}/artists">Artists</a>
+  <a href="{{ settings.url_base }}/calendar">Calendar</a>
+  <a href="{{ settings.url_base }}/wanted">Wanted</a>
+  <a href="{{ settings.url_base }}/recommendations">Discover</a>
+  <a href="{{ settings.url_base }}/activity">Activity</a>
+  <a href="{{ settings.url_base }}/settings">Settings</a>
+  <a class="cta" href="{{ settings.url_base }}/artists/add">+ Add artist</a>
+</nav>
+<main>
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+<footer>Chordarr {{ version }} · data from <a href="https://musicbrainz.org">MusicBrainz</a>, <a href="https://coverartarchive.org">Cover Art Archive</a>, <a href="https://listenbrainz.org">ListenBrainz</a> and Deezer</footer>
+</body>
+</html>

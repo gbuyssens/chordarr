@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chordarr"
+version = "0.1.0"
+description = "Music collection manager for the *arr stack: albums, singles, features, appearances and recommendations."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Guyliano Buyssens" }]
+keywords = ["music", "musicbrainz", "lidarr", "arr", "jellyfin", "plex", "prowlarr"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Framework :: FastAPI",
+  "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy[asyncio]>=2.0",
+  "aiosqlite>=0.20",
+  "httpx>=0.27",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
+  "mutagen>=1.47",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[project.scripts]
+chordarr = "chordarr.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/gbuyssens/chordarr"
+Issues = "https://github.com/gbuyssens/chordarr/issues"
+
+[tool.setuptools.packages.find]
+include = ["chordarr*"]
+
+[tool.setuptools.package-data]
+chordarr = ["templates/*.html", "static/*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
