@@ -274,7 +274,7 @@ async def import_lidarr(body: schemas.LidarrImportIn, session: AsyncSession = De
         if body.only_monitored and not row.monitored:
             continue
         try:
-            a = await artist_service.add_artist(session, row.mbid, path=row.path, monitored=row.monitored, refresh=False)
+            a = await artist_service.add_artist(session, row.mbid, path=row.path, monitored=row.monitored, monitor_types=["Album"], refresh=False)
             added.append(a.name)
             await session.commit()  # one short transaction per artist
         except artist_service.ArtistExists:

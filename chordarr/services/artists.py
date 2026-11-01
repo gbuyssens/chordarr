@@ -120,11 +120,13 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
     for rg in own_groups:
         rel = existing.get(rg.mbid)
         if rel is None:
+            # Studio releases of the chosen types are wanted; live albums, compilations,
+            # remixes and soundtracks (MusicBrainz secondary types) are listed, not wanted.
             rel = Release(
                 artist_id=artist.id,
                 mbid=rg.mbid,
                 kind="own",
-                monitored=artist.monitored and rg.primary_type in (artist.monitor_types or []),
+                monitored=artist.monitored and rg.primary_type in (artist.monitor_types or []) and not rg.secondary_types,
                 cover_url=release_group_cover(rg.mbid),
             )
             session.add(rel)

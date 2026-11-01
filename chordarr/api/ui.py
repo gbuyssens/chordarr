@@ -336,7 +336,7 @@ async def import_lidarr_ui(
     added = skipped = 0
     for row in rows:
         try:
-            await artist_service.add_artist(session, row.mbid, path=row.path, monitored=row.monitored, refresh=False)
+            await artist_service.add_artist(session, row.mbid, path=row.path, monitored=row.monitored, monitor_types=["Album"], refresh=False)
             added += 1
             await session.commit()
         except (artist_service.ArtistExists, ValueError):

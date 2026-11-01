@@ -62,7 +62,7 @@
 
 <section id="import">
 <h2>Import from Lidarr</h2>
-<p class="sub">Brings every artist Lidarr tracks (MusicBrainz id, folder, monitored flag). Chordarr rebuilds the catalogue itself, so nothing else is needed. Lidarr can stay running.</p>
+<p class="sub">Brings every artist Lidarr tracks (MusicBrainz id, folder, monitored flag). Chordarr rebuilds the catalogue itself, so nothing else is needed. Lidarr can stay running. Imported artists watch studio albums and features, like Lidarr's default profile; widen it per artist afterwards.</p>
 <form method="post" action="{{ settings.url_base }}/settings/import/lidarr" class="stack">
   <label>Path to <code>lidarr.db</code> on this machine <input name="db_path" placeholder="/var/lib/lidarr/lidarr.db"></label>
   <div class="or">or through the Lidarr API</div>

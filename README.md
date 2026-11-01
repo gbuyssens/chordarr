@@ -87,7 +87,10 @@ the key in the `X-Api-Key` header or the `apikey` query parameter.
   all write it), then by normalised folder name with or without a trailing `(year)`.
   Nothing on disk is ever renamed or moved in 0.1.
 * **Calendar and wanted list.** Monitored releases with a date are the calendar; those
-  already out and not on disk are the wanted list.
+  already out and not on disk are the wanted list. By default an artist's studio albums,
+  EPs and singles are monitored, plus the releases it is featured on; live albums,
+  compilations, remixes and compilation-only appearances are listed but not wanted until
+  you switch them on.
 * **Recommendations.** Each tracked artist votes for its ListenBrainz "similar artists"
   (listening-session based, open data) and Deezer "related artists". Candidates several
   of your artists point to rise to the top. One click tracks them.
