@@ -225,6 +225,24 @@ async def resume_direct() -> None:
         log.info("resumed %s direct download(s) after restart", n)
 
 
+_pending: set[str] = set()
+
+
+def _spawn(name: str, coro_factory) -> None:
+    """Run a heavy job as a task, once: the loop must never wait behind the heavy lane."""
+    if name in _pending or name in state["running"]:
+        return
+    _pending.add(name)
+
+    async def runner():
+        try:
+            await run_job(name, coro_factory)
+        finally:
+            _pending.discard(name)
+
+    asyncio.create_task(runner())
+
+
 async def loop() -> None:
     await asyncio.sleep(5)
     try:
@@ -233,16 +251,18 @@ async def loop() -> None:
         log.exception("resume failed")
     while True:
         try:
+            # Heavy lane (catalogue, searches, discovery): spawned, serialized by the heavy lock.
             if _due("refresh", timedelta(minutes=15)):
-                await run_job("refresh", refresh_due_artists)
+                _spawn("refresh", refresh_due_artists)
             if _due("scan", timedelta(hours=settings.scan_interval_hours)):
-                await run_job("scan", scan_library)
+                _spawn("scan", scan_library)
             if _due("recommendations", timedelta(hours=settings.recommendations_interval_hours)):
-                await run_job("recommendations", rebuild_recommendations)
+                _spawn("recommendations", rebuild_recommendations)
             if _due("rss", timedelta(minutes=settings.rss_interval_minutes)):
-                await run_job("rss", rss_sync)
+                _spawn("rss", rss_sync)
             if _due("search", timedelta(hours=settings.search_interval_hours)):
-                await run_job("search", search_wanted)
+                _spawn("search", search_wanted)
+            # Light lane (imports, notifications, backups): awaited here, never behind a search.
             if _due("queue", timedelta(seconds=settings.queue_poll_seconds)):
                 await run_job("queue", process_queue)
             await run_job("notify", dispatch)
