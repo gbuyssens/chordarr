@@ -19,12 +19,20 @@ from chordarr.services.prefs import get_prefs
 log = logging.getLogger(__name__)
 
 state: dict = {"running": {}, "last": {}, "errors": {}}
-_lock = asyncio.Lock()  # one heavy job at a time
+# Two lanes: long network jobs (catalogue refresh, searches, recommendations) run one at a
+# time; the queue, notifications and backups must never wait behind them.
+_heavy_lock = asyncio.Lock()
+_light_lock = asyncio.Lock()
+LIGHT_JOBS = ("queue", "notify", "backup", "resume")
 _wake = asyncio.Event()
 
 
+def _lock_for(name: str) -> asyncio.Lock:
+    return _light_lock if name.split(":")[0] in LIGHT_JOBS else _heavy_lock
+
+
 async def run_job(name: str, coro_factory) -> None:
-    async with _lock:
+    async with _lock_for(name):
         state["running"][name] = utcnow()
         try:
             await coro_factory()
