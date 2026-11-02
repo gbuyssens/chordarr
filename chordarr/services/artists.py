@@ -66,14 +66,19 @@ async def add_artist(
     session.add(artist)
     await session.flush()
     add_event(session, "artist_added", f"{artist.name} added", artist=artist)
+    # Commit now: the catalogue fetch that follows takes up to minutes of MusicBrainz calls,
+    # and the SQLite write lock must not be held meanwhile (every other writer would wait).
+    await session.commit()
     if refresh:
         await refresh_artist(session, artist, announce=False)
+        await session.commit()
         if monitor != "all":
             from chordarr.services import library
 
             await session.refresh(artist, ["releases"])
             await library.scan_artist(session, artist)
             await apply_monitor_mode(session, artist, monitor)
+            await session.commit()
     # Reload collections so callers can read artist.releases without lazy IO.
     await session.refresh(artist, ["releases", "appearances"])
     return artist
