@@ -19,7 +19,7 @@ def _sqlite_pragmas(dbapi_connection, _record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=15000")
+    cursor.execute("PRAGMA busy_timeout=60000")  # a big catalogue write can take tens of seconds
     cursor.close()
 
 

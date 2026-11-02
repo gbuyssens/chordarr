@@ -15,6 +15,7 @@ from functools import lru_cache
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chordarr.config import settings
@@ -335,6 +336,12 @@ async def search_releases(session: AsyncSession, releases: list[Release]) -> dic
             counters["failed"] += 1
             log.warning("grab failed for %s: %s", release.title, exc)
             add_event(session, "download_failed", f"Could not grab {release.title}", str(exc)[:400], release=release)
+            continue
+        except OperationalError as exc:
+            # Another writer held SQLite longer than the busy timeout: skip this one, keep going.
+            counters["failed"] += 1
+            log.warning("search of %s skipped (%s)", release.title, str(exc).splitlines()[0][:80])
+            await session.rollback()
             continue
         if dl is None:
             counters["nothing"] += 1
