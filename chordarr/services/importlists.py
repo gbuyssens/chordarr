@@ -126,6 +126,8 @@ async def process(session: AsyncSession, lst: ImportList) -> dict:
     lst.last_run = utcnow()
     lst.last_error = None
     lst.last_summary = f"{summary['items']} items · {summary['artists_added']} artists added · {summary['albums_monitored']} albums monitored · {summary['already']} already on disk · {len(summary['not_found'])} not found"
+    if summary["not_found"]:
+        lst.last_summary += " (not on MusicBrainz yet or named differently: " + "; ".join(summary["not_found"][:12]) + ("…" if len(summary["not_found"]) > 12 else "") + ")"
     await session.commit()
     return summary
 
