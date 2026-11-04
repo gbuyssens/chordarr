@@ -326,3 +326,21 @@ class Tag(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     label: Mapped[str] = mapped_column(String, unique=True)
+
+
+class ImportList(Base):
+    """A source of albums to add automatically (charts, playlists), like Lidarr's Import Lists."""
+
+    __tablename__ = "import_lists"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    type: Mapped[str] = mapped_column(String)  # apple_music_charts | deezer_chart
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)  # country, count…
+    monitor: Mapped[str] = mapped_column(String, default="album")  # album (only the listed album) | artist (whole artist)
+    search_on_add: Mapped[bool] = mapped_column(Boolean, default=True)
+    interval_hours: Mapped[float] = mapped_column(Float, default=24)
+    last_run: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_summary: Mapped[str] = mapped_column(Text, default="")

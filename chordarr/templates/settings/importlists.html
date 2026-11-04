@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Import Lists · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(save=False) }}{% endblock %}
+{% block content %}
+{% call f.fieldset('Import Lists') %}
+<div class="cards">
+{% for l in lists %}
+{% set labels = [('success', 'Enabled')] if l.enabled else [('disabled outline', 'Disabled')] %}
+{% set _ = labels.append(('', 'Monitor: ' ~ ('whole artist' if l.monitor == 'artist' else 'listed album'))) %}
+{% if l.search_on_add %}{% set _ = labels.append(('success', 'Search on add')) %}{% endif %}
+{% if ('list:' ~ l.id) in jobs.running %}{% set _ = labels.append(('info', 'Running')) %}{% endif %}
+{{ f.provider_card(base ~ '/settings/importlists/' ~ l.id, l.name, labels, l.last_error) }}
+{% endfor %}
+{{ f.add_card(base ~ '/settings/importlists/add') }}
+</div>
+{% if lists %}<table class="table"><thead><tr><th>List</th><th>Last run</th><th>Result</th><th></th></tr></thead><tbody>
+{% for l in lists %}<tr><td>{{ l.name }}</td><td class="muted small">{{ l.last_run.strftime('%Y-%m-%d %H:%M') if l.last_run else 'never' }} · every {{ '%g'|format(l.interval_hours) }} h</td><td class="small">{{ l.last_summary or '—' }}</td><td class="col-actions"><form method="post" action="{{ base }}/settings/importlists/{{ l.id }}/run"><button class="icon-btn" title="Run now" {% if ('list:' ~ l.id) in jobs.running %}disabled{% endif %}><svg class="i"><use href="#i-play"/></svg></button></form></td></tr>{% endfor %}
+</tbody></table>{% endif %}
+{% endcall %}
+<div class="help">A list adds the artists it names (when they are not tracked yet) and monitors the listed albums, or the whole artist, then searches for them. Lists run on their own schedule and never stop the rest of Chordarr.</div>
+{% endblock %}

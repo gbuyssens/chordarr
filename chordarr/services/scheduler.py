@@ -23,12 +23,19 @@ state: dict = {"running": {}, "last": {}, "errors": {}}
 # time; the queue, notifications and backups must never wait behind them.
 _heavy_lock = asyncio.Lock()
 _light_lock = asyncio.Lock()
+_list_lock = asyncio.Lock()
 LIGHT_JOBS = ("queue", "notify", "backup", "resume")
+LIST_JOBS = ("list",)
 _wake = asyncio.Event()
 
 
 def _lock_for(name: str) -> asyncio.Lock:
-    return _light_lock if name.split(":")[0] in LIGHT_JOBS else _heavy_lock
+    family = name.split(":")[0]
+    if family in LIGHT_JOBS:
+        return _light_lock
+    if family in LIST_JOBS:
+        return _list_lock
+    return _heavy_lock
 
 
 async def run_job(name: str, coro_factory) -> None:
@@ -180,6 +187,42 @@ async def add_and_search(mbids: list[str]) -> None:
         await dispatch()
 
 
+async def run_import_list(list_id: int) -> None:
+    from chordarr.models import ImportList
+    from chordarr.services import importlists
+
+    async with session_scope() as session:
+        lst = await session.get(ImportList, list_id)
+        if lst is None:
+            return
+        try:
+            summary = await importlists.process(session, lst)
+        except Exception as exc:
+            lst.last_error = str(exc)[:400]
+            lst.last_run = utcnow()
+            log.warning("import list %s failed: %s", lst.name, exc)
+            return
+        log.info("import list %s: %s", lst.name, lst.last_summary)
+        ids = summary["release_ids"] if lst.search_on_add else []
+    if ids:
+        trigger_release_search(ids)
+    await dispatch()
+
+
+async def run_due_import_lists() -> None:
+    from chordarr.models import ImportList
+
+    async with session_scope() as session:
+        rows = (await session.scalars(select(ImportList).where(ImportList.enabled.is_(True)))).all()
+        due = [row.id for row in rows if row.last_run is None or utcnow() - row.last_run > timedelta(hours=row.interval_hours)]
+    for list_id in due:
+        await run_import_list(list_id)
+
+
+def trigger_import_list(list_id: int) -> asyncio.Task:
+    return asyncio.create_task(run_job(f"list:{list_id}", lambda: run_import_list(list_id)))
+
+
 def trigger_appearance_search() -> asyncio.Task:
     return asyncio.create_task(run_job("search:appearances", search_appearances))
 
@@ -262,6 +305,8 @@ async def loop() -> None:
                 _spawn("rss", rss_sync)
             if _due("search", timedelta(hours=settings.search_interval_hours)):
                 _spawn("search", search_wanted)
+            if _due("list", timedelta(hours=1)):
+                _spawn("list", run_due_import_lists)
             # Light lane (imports, notifications, backups): awaited here, never behind a search.
             if _due("queue", timedelta(seconds=settings.queue_poll_seconds)):
                 await run_job("queue", process_queue)

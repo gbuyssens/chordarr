@@ -34,6 +34,7 @@ async def add_artist(
     monitor: str = "all",
     monitor_new_items: str = "all",
     refresh: bool = True,
+    with_appearances: bool = True,
 ) -> Artist:
     """Track a new artist.
 
@@ -70,7 +71,7 @@ async def add_artist(
     # and the SQLite write lock must not be held meanwhile (every other writer would wait).
     await session.commit()
     if refresh:
-        await refresh_artist(session, artist, announce=False)
+        await refresh_artist(session, artist, announce=False, with_appearances=with_appearances)
         await session.commit()
         if monitor != "all":
             from chordarr.services import library
@@ -121,7 +122,7 @@ def _role_for(track: mb.TrackCredit, artist_mbid: str, group: mb.ReleaseGroupInf
     return "credited"
 
 
-async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool = True) -> dict:
+async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool = True, with_appearances: bool = True) -> dict:
     """Pull the artist's release groups and appearances from MusicBrainz, diff and record.
 
     Network first, database second: every MusicBrainz and Deezer call happens before the
@@ -137,7 +138,7 @@ async def refresh_artist(session: AsyncSession, artist: Artist, announce: bool =
         info = await mb.get_artist(artist.mbid)
         picture = await _fetch_picture(artist, info)
         own_groups = await mb.artist_release_groups(artist.mbid)
-        appearances = await mb.artist_appearances(artist.mbid)
+        appearances = await mb.artist_appearances(artist.mbid) if (with_appearances and artist.monitor_appearances) else []
     except Exception as exc:
         log.exception("refresh %s failed", artist.name)
         artist.refresh_error = str(exc)[:500]

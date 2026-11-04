@@ -33,6 +33,7 @@ from chordarr.models import (
     Download,
     DownloadClient,
     Event,
+    ImportList,
     Indexer,
     MediaServer,
     Notifier,
@@ -995,6 +996,96 @@ async def downloadclient_action(client_id: int, action: str, session: AsyncSessi
         except Exception as exc:
             c.last_error = str(exc)[:300]
             notice = f"Test+failed:+{str(exc)[:80]}"
+    await session.commit()
+    return RedirectResponse(url(f"{target}?notice={notice}"), status_code=303)
+
+
+# import lists
+
+
+@protected.get("/settings/importlists", response_class=HTMLResponse)
+async def settings_importlists(request: Request, session: AsyncSession = Depends(get_session)):
+    from chordarr.services import importlists
+
+    rows = (await session.scalars(select(ImportList).order_by(ImportList.id))).all()
+    return render(request, "settings/importlists.html", lists=rows, LIST_TYPES=importlists.LIST_TYPES)
+
+
+@protected.get("/settings/importlists/add", response_class=HTMLResponse)
+async def importlist_add(request: Request):
+    from chordarr.services import importlists
+
+    presets = [(k, v["label"], v["help"]) for k, v in importlists.LIST_TYPES.items()]
+    return render(request, "settings/provider_add.html", kind="importlist", title="Add Import List", presets=presets, new_url=url("/settings/importlists/new"), hint="")
+
+
+@protected.get("/settings/importlists/new", response_class=HTMLResponse)
+async def importlist_new(request: Request, implementation: str = "apple_music_charts"):
+    from chordarr.services import importlists
+
+    t = importlists.LIST_TYPES.get(implementation)
+    if not t:
+        raise HTTPException(404)
+    lst = ImportList(name=t["label"] + (" (FR)" if "country" in t["fields"] else ""), type=implementation, config={"country": "fr", "count": 100})
+    return render(request, "settings/importlist_edit.html", lst=lst, is_new=True, ltype=t)
+
+
+@protected.get("/settings/importlists/{list_id}", response_class=HTMLResponse)
+async def importlist_edit(request: Request, list_id: int, session: AsyncSession = Depends(get_session)):
+    from chordarr.services import importlists
+
+    lst = await session.get(ImportList, list_id)
+    if not l:
+        raise HTTPException(404)
+    return render(request, "settings/importlist_edit.html", lst=lst, is_new=False, ltype=importlists.LIST_TYPES.get(lst.type, {"label": lst.type, "fields": [], "help": ""}))
+
+
+@protected.post("/settings/importlists/save")
+async def importlist_save(request: Request, session: AsyncSession = Depends(get_session)):
+    from chordarr.services import importlists
+
+    form = await request.form()
+    lid, ltype = form.get("id"), str(form.get("type") or "")
+    if ltype not in importlists.LIST_TYPES:
+        raise HTTPException(400)
+    lst = await session.get(ImportList, int(lid)) if lid else ImportList(name="", type=ltype, config={})
+    if lst is None:
+        raise HTTPException(404)
+    lst.name = str(form.get("name") or lst.name or importlists.LIST_TYPES[ltype]["label"])
+    lst.enabled = _form_bool(form, "enabled")
+    lst.monitor = "artist" if form.get("monitor") == "artist" else "album"
+    lst.search_on_add = _form_bool(form, "search_on_add")
+    try:
+        lst.interval_hours = max(1.0, float(form.get("interval_hours") or 24))
+        count = max(10, min(int(form.get("count") or 100), 100))
+    except ValueError:
+        return RedirectResponse(url("/settings/importlists?notice=Invalid+number"), status_code=303)
+    lst.config = {"country": str(form.get("country") or "fr").lower()[:2], "count": count}
+    session.add(lst)
+    await session.commit()
+    return RedirectResponse(url("/settings/importlists?notice=List+saved"), status_code=303)
+
+
+@protected.post("/settings/importlists/{list_id}/{action}")
+async def importlist_action(list_id: int, action: str, session: AsyncSession = Depends(get_session)):
+    from chordarr.services import importlists
+
+    lst = await session.get(ImportList, list_id)
+    if not lst:
+        raise HTTPException(404)
+    notice, target = "", "/settings/importlists"
+    if action == "delete":
+        await session.delete(lst)
+        notice = "List+deleted"
+    elif action == "test":
+        target = f"/settings/importlists/{list_id}"
+        try:
+            notice = "Test+succeeded:+" + (await importlists.test(lst)).replace(" ", "+")
+        except Exception as exc:
+            notice = f"Test+failed:+{str(exc)[:80]}"
+    elif action == "run":
+        scheduler.trigger_import_list(list_id)
+        notice = f"{lst.name.replace(' ', '+')}+is+running+in+the+background"
     await session.commit()
     return RedirectResponse(url(f"{target}?notice={notice}"), status_code=303)
 

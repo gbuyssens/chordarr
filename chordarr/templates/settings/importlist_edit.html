@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% block title %}{{ 'Add' if is_new else 'Edit' }} Import List · Chordarr{% endblock %}
+{% block toolbar %}{{ f.settings_toolbar(form='providerForm') }}{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ 'Add Import List' if is_new else 'Edit Import List' }} - {{ ltype.label }}</h1>
+<form id="providerForm" method="post" action="{{ base }}/settings/importlists/save">
+{% if not is_new %}<input type="hidden" name="id" value="{{ lst.id }}">{% endif %}
+<input type="hidden" name="type" value="{{ lst.type }}">
+<div class="help" style="margin-bottom:16px">{{ ltype.help }}</div>
+{% call f.group('Name') %}{{ f.text('name', lst.name) }}{% endcall %}
+{% call f.group('Enable', size='medium') %}{{ f.check('enabled', lst.enabled) }}{% endcall %}
+{% if 'country' in ltype.fields %}{% call f.group('Country', help='ISO country code of the chart: fr, be, ch, ca, us, gb…') %}{{ f.text('country', (lst.config or {}).get('country', 'fr')) }}{% endcall %}{% endif %}
+{% call f.group('Entries', help='How many entries of the chart to take (10 to 100)') %}{{ f.number('count', (lst.config or {}).get('count', 100), 10, 100) }}{% endcall %}
+{% call f.group('Monitor', help='Listed album: the artist is added unmonitored and only that album is wanted. Whole artist: everything the artist has, features included.', size='medium') %}{{ f.select('monitor', [('album', 'Listed album only'), ('artist', 'Whole artist')], lst.monitor) }}{% endcall %}
+{% call f.group('Search on Add', help='Search and grab the monitored albums right after the list runs', size='medium') %}{{ f.check('search_on_add', lst.search_on_add) }}{% endcall %}
+{% call f.group('Refresh Interval', help='How often the list is fetched again', unit='hours', advanced=True) %}{{ f.number('interval_hours', lst.interval_hours, 1, step='1') }}{% endcall %}
+<div class="form-actions">
+  {% if not is_new %}<button class="btn danger" type="submit" formaction="{{ base }}/settings/importlists/{{ lst.id }}/delete" formnovalidate onclick="return confirm('Delete the list \'{{ lst.name|e }}\'? Artists and albums it added stay.')">Delete</button>{% endif %}
+  <span class="spacer"></span>
+  {% if not is_new %}<button class="btn" type="submit" formaction="{{ base }}/settings/importlists/{{ lst.id }}/test" formnovalidate><svg class="i"><use href="#i-test"/></svg> Test</button>{% endif %}
+  <a class="btn" href="{{ base }}/settings/importlists">Cancel</a>
+  <button class="btn primary" type="submit">Save</button>
+</div>
+</form>
+{% endblock %}

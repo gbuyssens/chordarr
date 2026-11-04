@@ -37,7 +37,7 @@
   <div class="group">{{ nav('/wanted', 'exclamation', 'Wanted') }}
     {% if path.startswith(base ~ '/wanted') %}<div class="subs">{{ sub('/wanted/missing', 'Missing') }}</div>{% endif %}</div>
   <div class="group">{{ nav('/settings', 'cog', 'Settings') }}
-    {% if path.startswith(base ~ '/settings') %}<div class="subs">{{ sub('/settings/mediamanagement', 'Media Management') }}{{ sub('/settings/profiles', 'Profiles') }}{{ sub('/settings/indexers', 'Indexers') }}{{ sub('/settings/downloadclients', 'Download Clients') }}{{ sub('/settings/connect', 'Connect') }}{{ sub('/settings/general', 'General') }}</div>{% endif %}</div>
+    {% if path.startswith(base ~ '/settings') %}<div class="subs">{{ sub('/settings/mediamanagement', 'Media Management') }}{{ sub('/settings/profiles', 'Profiles') }}{{ sub('/settings/indexers', 'Indexers') }}{{ sub('/settings/downloadclients', 'Download Clients') }}{{ sub('/settings/importlists', 'Import Lists') }}{{ sub('/settings/connect', 'Connect') }}{{ sub('/settings/general', 'General') }}</div>{% endif %}</div>
   <div class="group">{{ nav('/system', 'laptop', 'System') }}
     {% if path.startswith(base ~ '/system') %}<div class="subs">{{ sub('/system/status', 'Status') }}{{ sub('/system/tasks', 'Tasks') }}{{ sub('/system/backup', 'Backup') }}{{ sub('/system/updates', 'Updates') }}</div>{% endif %}</div>
   <div class="sidebar-foot">v{{ version }}{% if settings.ui_password %} · <a href="{{ base }}/logout">Log out</a>{% endif %}</div>
