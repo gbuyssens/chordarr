@@ -157,22 +157,33 @@ EDITION_RE = re.compile(
 )
 
 
+ARTICLES = {"the", "a", "an", "le", "la", "les", "l", "and", "&"}
+
+
+def _core(title: str) -> list[str]:
+    return [w for w in title.split() if w not in ARTICLES]
+
+
 def same_album(tagged: str, wanted: str) -> bool:
-    """Equal titles, or the tag adds only edition words ("qalf" vs "qalf deluxe edition 2021").
+    """Equal titles (articles aside), or the tag adds only edition words ("qalf" vs "qalf deluxe
+    edition 2021", "dark side of the moon" vs "the dark side of the moon").
 
     A tag that adds a real word ("qalf" vs "qalf infinity") is another release.
     """
     if tagged == wanted:
         return True
-    if tagged.startswith(wanted + " "):
-        return all(EDITION_RE.match(w) for w in tagged[len(wanted) :].split())
+    t, w = _core(tagged), _core(wanted)
+    if t == w:
+        return True
+    if t[: len(w)] == w:
+        return all(EDITION_RE.match(x) for x in t[len(w) :])
     return False
 
 
 def check_match(tracks: list[TrackInfo], release: Release, artist: Artist) -> str | None:
     """None when the tags fit the release, else a reason."""
-    rg_ids = {t.rg_mbid for t in tracks if t.rg_mbid}
-    if release.mbid in rg_ids:
+    rg_ids = {t.rg_mbid.casefold() for t in tracks if t.rg_mbid}  # some taggers write the UUID in mixed case
+    if release.mbid.casefold() in rg_ids:
         return None
     want_album = normalise(release.title)
     albums = {normalise(t.album) for t in tracks if t.album}

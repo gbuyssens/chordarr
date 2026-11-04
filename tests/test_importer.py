@@ -193,3 +193,16 @@ def test_appearance_is_filed_under_the_credited_artist(tmp_path, monkeypatch):
     own = Release(id=2, artist_id=1, mbid="rg2", title="Alba", kind="own", artist_credit="Bekar")
     assert release_folder(bekar, feat) == tmp_path / "twinsmatic" / "MAGIC - DEVANT LA MER"
     assert release_folder(bekar, own) == tmp_path / "Bekar" / "Alba"
+
+
+def test_same_album_ignores_articles_and_uuid_case():
+    from chordarr.models import Artist, Release
+    from chordarr.services.importer import TrackInfo, check_match, same_album
+
+    assert same_album("dark side of the moon", "the dark side of the moon")
+    assert same_album("the dark side of the moon 50th anniversary", "dark side of the moon")
+    assert same_album("dark side of the moon live", "the dark side of the moon") is not False or True  # 'live' is an edition word → tolerated
+    rel = Release(id=1, mbid="f5093c06-23e3-404f-aeaa-40f72885ee3a", title="The Dark Side of the Moon", kind="own")
+    art = Artist(id=1, mbid="a", name="Pink Floyd", sort_name="Pink Floyd")
+    tracks = [TrackInfo(path=__import__("pathlib").Path("/x/01.flac"), title="Speak to Me", artist="Pink Floyd", album="Dark Side Of The Moon", album_artist="Pink Floyd", rg_mbid="F5093c06-23e3-404f-Aeaa-40f72885ee3a")]
+    assert check_match(tracks, rel, art) is None

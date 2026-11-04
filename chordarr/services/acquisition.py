@@ -328,7 +328,14 @@ async def grab_best(session: AsyncSession, release: Release) -> Download | None:
 async def search_releases(session: AsyncSession, releases: list[Release]) -> dict:
     """Automatic search over a list of releases: the best accepted result of each is grabbed."""
     counters = {"searched": 0, "grabbed": 0, "nothing": 0, "failed": 0}
+    seen: set[str] = set()
     for release in releases:
+        if release.mbid in seen:
+            continue  # the same record listed twice (two editions, two lists)
+        seen.add(release.mbid)
+        busy = (await session.scalars(_busy_mbids_query().where(Release.mbid == release.mbid))).first()
+        if busy:
+            continue  # already queued or on disk through another artist
         counters["searched"] += 1
         try:
             dl = await grab_best(session, release)
