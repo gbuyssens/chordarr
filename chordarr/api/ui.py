@@ -577,6 +577,8 @@ async def system_status(request: Request, session: AsyncSession = Depends(get_se
         issues.append(("warning", "No root folder configured (CHORDARR_ROOT_FOLDER)."))
     for folder in library.unwritable_folders():
         issues.append(("error", f"Folder not writable by Chordarr: {folder}. Imports into it fail; fix the owner or give the group write access (chmod g+w)."))
+    for c in (await session.scalars(select(DownloadClient).where(DownloadClient.last_error.is_not(None)))).all():
+        issues.append(("error", f"Download client {c.name}: {c.last_error}"))
     for a in (await session.scalars(select(Artist).where(Artist.refresh_error.is_not(None)))).all():
         issues.append(("error", f"{a.name}: {a.refresh_error}"))
     for name, err in scheduler.status()["errors"].items():
@@ -960,6 +962,7 @@ async def downloadclient_save(request: Request, session: AsyncSession = Depends(
         session.add(c)
         await session.commit()
         direct.forget(c.id)
+        direct.clear_auth_block(c.id)
         return RedirectResponse(url("/settings/downloadclients?notice=Download+client+saved"), status_code=303)
     host = str(form.get("host", "")).strip()
     if not host:

@@ -174,12 +174,12 @@ def check_match(tracks: list[TrackInfo], release: Release, artist: Artist) -> st
     rg_ids = {t.rg_mbid for t in tracks if t.rg_mbid}
     if release.mbid in rg_ids:
         return None
-    if rg_ids:
-        return f"files are tagged with another release group ({', '.join(sorted(rg_ids))[:80]})"
     want_album = normalise(release.title)
     albums = {normalise(t.album) for t in tracks if t.album}
     if want_album and any(same_album(a, want_album) for a in albums if a):
-        return None
+        return None  # another edition (remaster, anniversary) of the same record: same title, fine
+    if rg_ids:
+        return f"files are tagged with another release group ({', '.join(sorted(rg_ids))[:80]})"
     artist_tokens = set(normalise(release.artist_credit if release.kind == "appearance" and release.artist_credit else artist.name).split())
     if "various artists" in (release.artist_credit or "").casefold():
         artist_tokens = set()

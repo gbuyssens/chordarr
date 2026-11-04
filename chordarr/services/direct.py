@@ -20,7 +20,7 @@ import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from chordarr.config import settings
@@ -250,11 +250,27 @@ def _info_url(source: str, album_id: str) -> str:
     }.get(source, "")
 
 
+AUTH_COOLDOWN = timedelta(hours=1)
+_auth_failed: dict[tuple[int, str], datetime] = {}
+
+
+def auth_blocked(client_id: int, source: str) -> bool:
+    when = _auth_failed.get((client_id, source))
+    return bool(when and datetime.utcnow() - when < AUTH_COOLDOWN)
+
+
+def clear_auth_block(client_id: int) -> None:
+    for key in [k for k in _auth_failed if k[0] == client_id]:
+        _auth_failed.pop(key, None)
+
+
 async def search(client: DownloadClient, artist: str, title: str, limit: int = 15) -> list[Candidate]:
     if not available():
         return []
     out: list[Candidate] = []
     for source in enabled_sources(client):
+        if auth_blocked(client.id, source):
+            continue  # credentials refused less than an hour ago: do not hammer the service
         try:
             sc = await source_client(client, source)
             pages = await sc.search("album", f"{artist} {title}".strip(), limit=limit)
@@ -262,6 +278,9 @@ async def search(client: DownloadClient, artist: str, title: str, limit: int = 1
         except Exception as exc:
             log.warning("streamrip %s search failed: %s", source, clean_error(exc))
             _clients.pop((client.id, source), None)
+            if "Authentication" in exc.__class__.__name__ or "credentials" in str(exc).lower():
+                _auth_failed[(client.id, source)] = datetime.utcnow()
+                raise RuntimeError(f"{SOURCES[source]['label']}: login refused (expired ARL / wrong password?). Fix the credentials in Settings → Download Clients and test; searches on this source pause for an hour.") from exc
             raise RuntimeError(f"{SOURCES[source]['label']}: {clean_error(exc)}") from exc
     return out
 
@@ -364,6 +383,7 @@ class StreamripClient:
         if not sources:
             raise RuntimeError("no source has credentials (Qobuz email + password, Deezer ARL, or Tidal tokens)")
         forget(self.cfg.id)
+        clear_auth_block(self.cfg.id)
         ok = []
         for source in sources:
             try:

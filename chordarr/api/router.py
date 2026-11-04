@@ -17,7 +17,7 @@ from chordarr.api.auth import require_api_key
 from chordarr.config import settings
 from chordarr.db import get_session
 from chordarr.metadata import musicbrainz as mb
-from chordarr.models import Artist, Event, Notifier, Recommendation, Release
+from chordarr.models import Artist, DownloadClient, Event, Notifier, Recommendation, Release
 from chordarr.services import artists as artist_service
 from chordarr.services import library, lidarr_import, notify, scheduler
 from chordarr.services.events import EVENT_TYPES
@@ -64,6 +64,8 @@ async def health(session: AsyncSession = Depends(get_session)):
         issues.append({"type": "warning", "message": "No root folder configured (CHORDARR_ROOT_FOLDER)."})
     for folder in library.unwritable_folders():
         issues.append({"source": "RootFolderCheck", "type": "error", "message": f"Folder not writable by Chordarr: {folder}. Imports into it fail; fix the owner or give the group write access (chmod g+w).", "wikiUrl": ""})
+    for c in (await session.scalars(select(DownloadClient).where(DownloadClient.last_error.is_not(None)))).all():
+        issues.append({"source": "DownloadClientCheck", "type": "error", "message": f"Download client {c.name}: {c.last_error}", "wikiUrl": ""})
     errored = (await session.scalars(select(Artist).where(Artist.refresh_error.is_not(None)))).all()
     for a in errored:
         issues.append({"type": "error", "message": f"{a.name}: {a.refresh_error}"})
