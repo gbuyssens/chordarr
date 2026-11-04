@@ -1035,7 +1035,7 @@ async def importlist_edit(request: Request, list_id: int, session: AsyncSession 
     from chordarr.services import importlists
 
     lst = await session.get(ImportList, list_id)
-    if not l:
+    if not lst:
         raise HTTPException(404)
     return render(request, "settings/importlist_edit.html", lst=lst, is_new=False, ltype=importlists.LIST_TYPES.get(lst.type, {"label": lst.type, "fields": [], "help": ""}))
 
